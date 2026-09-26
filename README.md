@@ -39,7 +39,7 @@ Nothing leaves your Mac. Claude Pets only reads files Claude already writes.
 
 Grab the latest `claude-pets-<version>.dmg` from [Releases](https://github.com/jonasgoth/claude-pets/releases) and open it. The disk image opens as a window: drag the crab onto Applications.
 
-![The Claude Pets installer window: drag the crab into Applications](docs/install.png)
+![The Claude Pets installer window: drag the crab into Applications](docs/installer.png)
 
 The build is ad-hoc signed, not notarized. The first time, right-click Claude Pets in Applications and choose **Open**.
 
