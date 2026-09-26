@@ -6,10 +6,13 @@ import SpriteKit
 ///
 /// Colours are handed out in the order you start working. The first folder you open wears the pets'
 /// own terracotta, the next indigo, the next blue, and so on down `projectHues`. Nothing is tied to a
-/// folder forever: once Claude has been quiet for `idleReset` the slate is wiped, so the next folder
-/// to turn up starts again at terracotta. Which project is orange therefore depends on where you
-/// started working, not on a calendar date — no midnight switch, and a day spent in one project
-/// keeps that project orange the whole way through.
+/// folder forever: once you have not sent Claude a message for `idleReset` the slate is wiped, and
+/// the folder you come back to starts again at terracotta. Which project is orange therefore depends
+/// on where you started working, not on a calendar date — no midnight switch, and a day spent in one
+/// project keeps that project orange the whole way through.
+///
+/// The clock is your messages, not Claude's: a background job or a sub-agent can keep a crab busy
+/// all night while you sleep, and that must not stop the morning from starting fresh.
 enum CrabPalette {
     /// The crab's own body color (terracotta), matching the artwork as drawn.
     static let standard = NSColor(srgbRed: 0.85, green: 0.47, blue: 0.34, alpha: 1)
@@ -23,36 +26,30 @@ enum CrabPalette {
     /// colour; past eight folders in one stretch it wraps and repeats.
     static let projectHues: [CGFloat] = [standardHueDegrees, 245, 205, 325, 128, 280, 95, 170]
 
-    /// Quiet for this long and the next crab starts the colours over from terracotta.
+    /// This long between two of your messages and the colours start over from terracotta.
     static let idleReset: TimeInterval = 4 * 3600
 
-    /// How often the idle clock is written to disk. It only has to be good to the minute — it
-    /// decides a four-hour gap — and the refresh behind it runs every second.
-    private static let activityWriteInterval: TimeInterval = 60
-
     private static let huesKey = "projectHueByPath"
-    private static let activityKey = "projectHueLastActivity"
+    private static let promptKey = "projectHueLastPrompt"
 
     private static var assigned: [String: Double] =
         (UserDefaults.standard.dictionary(forKey: "projectHueByPath") as? [String: Double]) ?? [:]
-    private static var lastActivity = UserDefaults.standard.double(forKey: "projectHueLastActivity")
+    private static var lastPrompt = UserDefaults.standard.double(forKey: "projectHueLastPrompt")
 
-    /// Call at the top of each refresh, before any hue is asked for: if Claude has been quiet long
-    /// enough, forget who had which colour so the next folder to appear starts at terracotta. The
-    /// clock is on disk, so a gap counts whether Clawdy sat idle through it or was not running.
-    static func expireIfIdle(now: TimeInterval) {
-        guard !assigned.isEmpty, now - lastActivity >= idleReset else { return }
-        assigned = [:]
-        UserDefaults.standard.removeObject(forKey: huesKey)
-    }
-
-    /// Call at the end of each refresh, saying whether any crab was on screen. That is what keeps
-    /// the idle clock pushed forward.
-    static func noteActivity(hadCrabs: Bool, now: TimeInterval) {
-        guard hadCrabs else { return }
-        let writeDue = now - lastActivity >= activityWriteInterval
-        lastActivity = now
-        if writeDue { UserDefaults.standard.set(now, forKey: activityKey) }
+    /// Call at the top of each refresh, before any hue is asked for, with your newest message in any
+    /// session and the folder it went to. If it came `idleReset` or more after the one before it,
+    /// forget who had which colour; either way that folder claims its colour first, so the one you
+    /// came back to is the one that gets terracotta. The last message time is on disk, so a gap
+    /// counts whether Clawdy was running through it or not.
+    static func notePrompt(at time: TimeInterval, project key: String) {
+        guard time > lastPrompt else { return }
+        if time - lastPrompt >= idleReset {
+            assigned = [:]
+            UserDefaults.standard.removeObject(forKey: huesKey)
+        }
+        lastPrompt = time
+        UserDefaults.standard.set(time, forKey: promptKey)
+        _ = hueDegrees(forProject: key)
     }
 
     /// The shell hue for one folder: the next colour in the list the first time that folder turns up

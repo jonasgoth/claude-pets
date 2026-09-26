@@ -21,6 +21,7 @@ final class TranscriptReader {
     private(set) var lastToolUseTime: Double = 0
     private(set) var permissionModeIsAuto = false  // "auto"/"bypassPermissions"/"acceptEdits"
     private(set) var turnStartedAt: Double = 0     // epoch seconds of the prompt that began the current turn
+    private(set) var lastPromptTime: Double = 0    // epoch seconds of the last message you sent (see isHumanPrompt)
 
     /// A shell started with `run_in_background`: where its output goes, and when it started.
     struct BackgroundShell { let outputPath: String; let startedAt: Double }
@@ -101,6 +102,7 @@ final class TranscriptReader {
         case "ai-title":
             if let t = obj["aiTitle"] as? String, !t.isEmpty, title == nil { title = t }
         case "user":
+            if isHumanPrompt(obj) { lastPromptTime = max(lastPromptTime, recordTime > 0 ? recordTime : lastEventTime) }
             // You pressed stop. The turn ends right there and nothing else is coming until you
             // type again — without this the crab keeps "working" (or begging for a permission that
             // will never be answered) until it finally goes dormant.
@@ -202,6 +204,19 @@ final class TranscriptReader {
 
     private static func isInterruptText(_ text: String) -> Bool {
         text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("[Request interrupted by user")
+    }
+
+    /// A user record that you sent: a prompt, a slash command, pressing stop. Not a tool result, not
+    /// text the app slips in alongside a prompt (isMeta), and not a background job's
+    /// task-notification — that arrives as a user record too, and can land at 4 am with nobody there.
+    private func isHumanPrompt(_ obj: [String: Any]) -> Bool {
+        if obj["isMeta"] as? Bool == true || isToolResult(obj) { return false }
+        // Newer records say who sent them ({"kind": "human"}); interrupts and older records don't.
+        if let origin = obj["origin"] as? [String: Any] { return origin["kind"] as? String == "human" }
+        let message = obj["message"] as? [String: Any]
+        let text = message?["content"] as? String
+            ?? (message?["content"] as? [[String: Any]])?.first?["text"] as? String ?? ""
+        return !text.hasPrefix("<task-notification>")
     }
 
     private func isToolResult(_ obj: [String: Any]) -> Bool {

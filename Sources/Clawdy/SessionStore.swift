@@ -131,16 +131,24 @@ final class SessionStore {
         var snapshot = Snapshot()
         var newRows: [Row] = []
         var liveIds: Set<String> = []
-        // A long enough gap since the last crab starts the shell colours over (see CrabPalette).
-        CrabPalette.expireIfIdle(now: now)
+        // Your newest message anywhere, read before any crab asks for a colour: a long gap since the
+        // one before starts the shell colours over, and its folder picks first (see CrabPalette).
+        var newestPrompt: (time: Double, project: String)?
+        for session in live {
+            let reader = reader(for: session.sessionId)
+            reader.refresh()
+            if reader.lastPromptTime > newestPrompt?.time ?? 0 {
+                newestPrompt = (reader.lastPromptTime, Self.projectKey(for: session))
+            }
+        }
+        if let newestPrompt { CrabPalette.notePrompt(at: newestPrompt.time, project: newestPrompt.project) }
 
         for session in live.sorted(by: { $0.startedAt < $1.startedAt }) {
             let meta = desktopMeta.meta(for: session.sessionId)
             if meta?.isArchived == true { continue }          // archived chats walk off
             liveIds.insert(session.sessionId)
 
-            let reader = reader(for: session.sessionId)
-            reader.refresh()
+            let reader = reader(for: session.sessionId)       // refreshed just above
             // Nothing written yet: this chat has not started. Clicking "New" (or switching folders
             // in a new chat) spins up a process that lives under a second and never writes a line.
             // Without this it earns a crab that pops in and walks straight back off again.
@@ -203,7 +211,6 @@ final class SessionStore {
 
             let chatTitle = meta?.title ?? reader.title
             let title = chatTitle ?? session.name
-            let hue = CrabPalette.hueDegrees(forProject: Self.projectKey(for: session))
             let activity = reader.lastEventTime > 0 ? reader.lastEventTime
                 : (session.startedAt > 0 ? session.startedAt : now)
             let idleFor = status.isBusy ? 0 : now - activity
@@ -215,6 +222,9 @@ final class SessionStore {
                 if Self.debug { lastLogged[session.sessionId] = status }   // keeps the seen-check log quiet
                 continue
             }
+            // Only a crab on screen claims a colour. Yesterday's chats sleeping in the menu would
+            // otherwise grab the first colours back the moment the slate is wiped.
+            let hue = CrabPalette.hueDegrees(forProject: Self.projectKey(for: session))
             snapshot.crabs.append(CrabSnapshot(id: session.sessionId, title: chatTitle ?? "", hue: hue, status: status,
                                                detail: detail(for: session, reader: reader, status: status, jobs: runningJobs.count), open: open))
             newRows.append(Row(id: session.sessionId, title: title, status: status, lastActivity: activity, open: open))
@@ -257,8 +267,6 @@ final class SessionStore {
                                                                   since: session.lastActivity), open: open))
             newRows.append(Row(id: session.sessionId, title: session.title, status: status, lastActivity: session.lastActivity, open: open))
         }
-
-        CrabPalette.noteActivity(hadCrabs: !snapshot.crabs.isEmpty, now: now)
 
         // Menu order: busy first, then the ones waiting on you, then the rest — newest update on top.
         newRows.sort {
