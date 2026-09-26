@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "Clawdy",
+    name: "claude-pets",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "Clawdy",
-            path: "Sources/Clawdy",
+            name: "ClaudePets",
+            path: "Sources/ClaudePets",
             linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("SpriteKit")]
         )
     ]

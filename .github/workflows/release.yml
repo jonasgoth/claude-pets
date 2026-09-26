@@ -1,8 +1,8 @@
 name: Release
 
 # Pushing a version tag ships a release: GitHub builds the app, wraps it in the
-# drag-to-Applications DMG and attaches it to a new GitHub Release. Clawdy's own
-# updater (Sources/Clawdy/Updater.swift) reads that release and offers it to people
+# drag-to-Applications DMG and attaches it to a new GitHub Release. The app's own
+# updater (Sources/ClaudePets/Updater.swift) reads that release and offers it to people
 # already running the app.
 #
 #   git tag v0.6.0
@@ -36,9 +36,9 @@ jobs:
           else
             VERSION="${GITHUB_REF_NAME#v}"   # v0.6.0 -> 0.6.0
           fi
-          echo "CLAWDY_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "CLAUDE_PETS_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "TAG=v$VERSION" >> "$GITHUB_ENV"
-          echo "Building Clawdy $VERSION"
+          echo "Building Claude Pets $VERSION"
 
       - name: Build the DMG
         # CI has no logged-in Finder to arrange the disk image window, so make-dmg.sh
@@ -48,10 +48,10 @@ jobs:
       - name: Check the app came out with the right version
         run: |
           BUILT=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' \
-                  build/Clawdy.app/Contents/Info.plist)
-          test "$BUILT" = "$CLAWDY_VERSION" || {
-            echo "Built $BUILT but expected $CLAWDY_VERSION"; exit 1; }
-          test -f "build/Clawdy-$CLAWDY_VERSION.dmg"
+                  "build/Claude Pets.app/Contents/Info.plist")
+          test "$BUILT" = "$CLAUDE_PETS_VERSION" || {
+            echo "Built $BUILT but expected $CLAUDE_PETS_VERSION"; exit 1; }
+          test -f "build/claude-pets-$CLAUDE_PETS_VERSION.dmg"
 
       - name: Publish the release
         env:
@@ -59,10 +59,10 @@ jobs:
         run: |
           # --generate-notes fills the body with the commits since the last release.
           # If the release already exists (a re-run), just replace its DMG.
-          gh release create "$TAG" "build/Clawdy-$CLAWDY_VERSION.dmg" \
-            --title "Clawdy $CLAWDY_VERSION" \
+          gh release create "$TAG" "build/claude-pets-$CLAUDE_PETS_VERSION.dmg" \
+            --title "Claude Pets $CLAUDE_PETS_VERSION" \
             --generate-notes \
-            || gh release upload "$TAG" "build/Clawdy-$CLAWDY_VERSION.dmg" --clobber
+            || gh release upload "$TAG" "build/claude-pets-$CLAUDE_PETS_VERSION.dmg" --clobber
 
 # The DMG is ad-hoc signed, so the first launch needs a right-click > Open. To drop that
 # step you need a paid Apple Developer account. Then add repository secrets and, after the
@@ -72,6 +72,6 @@ jobs:
 #       echo "$MACOS_CERT_P12" | base64 --decode > cert.p12
 #       security create-keychain -p "" build.keychain
 #       security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
-#       codesign --force --options runtime --timestamp --sign "Developer ID Application: …" build/Clawdy.app
-#       xcrun notarytool submit "build/Clawdy-$CLAWDY_VERSION.dmg" --wait …
-#       xcrun stapler staple "build/Clawdy-$CLAWDY_VERSION.dmg"
+#       codesign --force --options runtime --timestamp --sign "Developer ID Application: …" "build/Claude Pets.app"
+#       xcrun notarytool submit "build/claude-pets-$CLAUDE_PETS_VERSION.dmg" --wait …
+#       xcrun stapler staple "build/claude-pets-$CLAUDE_PETS_VERSION.dmg"

@@ -34,7 +34,7 @@ SVG = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewB
   <path d="{makeicon.star(596, 74, 13)}" fill="#FFBE52" opacity="0.8"/>
   <path d="{makeicon.star(64, 112, 9)}" fill="#FFBE52" opacity="0.6"/>
   <text x="{W/2}" y="66" text-anchor="middle" font-family="{FONT}" font-size="30"
-        font-weight="700" fill="#5B3A2B">Clawdy</text>
+        font-weight="700" fill="#5B3A2B">Claude Pets</text>
   <text x="{W/2}" y="98" text-anchor="middle" font-family="{FONT}" font-size="15"
         fill="#9A7261">Drag the crab into Applications</text>
   <g>
@@ -44,7 +44,7 @@ SVG = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewB
           stroke="#E8886B" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
   </g>
   <text x="{W/2}" y="368" text-anchor="middle" font-family="{FONT}" font-size="12" fill="#A98A79">
-    First launch: right-click Clawdy in Applications and choose Open.
+    First launch: right-click Claude Pets in Applications and choose Open.
   </text>
 </svg>'''
 

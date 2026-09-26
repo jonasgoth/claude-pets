@@ -12,5 +12,5 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - name: Build Clawdy.app
+      - name: Build Claude Pets.app
         run: ./build.sh

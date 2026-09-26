@@ -722,15 +722,19 @@ final class PlaypenScene: SKScene {
 
     /// Neighbouring crabs get their name tags stacked at different heights so they stay readable.
     private func layoutTags() {
-        var placed: [(x: CGFloat, width: CGFloat, level: Int)] = []
+        var placed: [(x: CGFloat, width: CGFloat, lift: CGFloat, height: CGFloat)] = []
         for crab in crabs.sorted(by: { $0.position.x < $1.position.x }) {
             guard crab.tagWidth > 0 else { continue }        // untitled crab: no tag to stack
-            var level = 0
-            while level < 3, placed.contains(where: {
-                $0.level == level && abs($0.x - crab.position.x) < ($0.width + crab.tagWidth) / 2 + 6
-            }) { level += 1 }
-            crab.tagLevel = level
-            placed.append((crab.position.x, crab.tagWidth, level))
+            let near = placed.filter { abs($0.x - crab.position.x) < ($0.width + crab.tagWidth) / 2 + 6 }
+            // Hop up over any close neighbour's tag in the way (tags can be one or two lines tall).
+            var lift: CGFloat = 0
+            for _ in 0..<3 {
+                let inTheWay = near.filter { $0.lift < lift + crab.tagHeight && lift < $0.lift + $0.height }
+                guard let top = inTheWay.map({ $0.lift + $0.height }).max() else { break }
+                lift = top
+            }
+            crab.tagLift = lift
+            placed.append((crab.position.x, crab.tagWidth, lift, crab.tagHeight))
         }
     }
 

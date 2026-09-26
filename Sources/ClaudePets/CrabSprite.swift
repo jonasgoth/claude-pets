@@ -74,7 +74,7 @@ enum CrabSprite {
 
     static let stripImage: NSImage = {
         guard let data = Data(base64Encoded: stripBase64), let image = NSImage(data: data) else {
-            fatalError("Clawdy: crab sprite strip is corrupt")
+            fatalError("Claude Pets: crab sprite strip is corrupt")
         }
         return image
     }()

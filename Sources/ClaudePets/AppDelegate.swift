@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The Accessibility ("Window checks") row is finished but hidden: we don't want to ask for
     /// that permission yet. Nothing else turns Accessibility on, so the feature simply stays off
     /// until we show the row again. To try it meanwhile:
-    ///     defaults write app.clawdy.Clawdy ShowWindowChecks -bool true
+    ///     defaults write app.claudepets.ClaudePets ShowWindowChecks -bool true
     static var showsWindowChecks: Bool {
         UserDefaults.standard.bool(forKey: "ShowWindowChecks")
     }
@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var spinFrame = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.carryOverFromClawdy()
         playpen = PlaypenController()
         seen.start()
         store = SessionStore(scene: playpen.scene, seen: seen)
@@ -45,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.image = CrabSprite.menuBarImage()
-            button.toolTip = "Clawdy"
+            button.toolTip = "Claude Pets"
         }
 
         menu = NSMenu()
@@ -59,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(gridItem)
         menu.addItem(Self.dividerItem())
         // Quit is drawn as one more settings row so the bottom of the menu matches the rest.
-        quitView.setRows([MenuRow.Model(title: "Quit Clawdy",
+        quitView.setRows([MenuRow.Model(title: "Quit Claude Pets",
                                         leading: .glyph(IconFont.power),
                                         control: .action("⌘Q"),
                                         closesMenu: true,
@@ -159,13 +160,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func toggleHooks() {
         if HookInstaller.isInstalled {
             switch HookInstaller.uninstall() {
-            case .success: notify("Instant updates off", "Clawdy's hooks were removed from your Claude settings.")
+            case .success: notify("Instant updates off", "The Claude Pets hooks were removed from your Claude settings.")
             case .failure(let e): notify("Could not remove hooks", e.localizedDescription)
             }
         } else {
             let alert = NSAlert()
             alert.messageText = "Turn on instant updates?"
-            alert.informativeText = "Clawdy will add hooks to your Claude Code settings (~/.claude/settings.json) so crabs react instantly to permission prompts and finished turns. Your settings file is backed up first. You can turn this off any time."
+            alert.informativeText = "Claude Pets will add hooks to your Claude Code settings (~/.claude/settings.json) so crabs react instantly to permission prompts and finished turns. Your settings file is backed up first. You can turn this off any time."
             alert.addButton(withTitle: "Turn on")
             alert.addButton(withTitle: "Cancel")
             NSApp.activate(ignoringOtherApps: true)
@@ -178,7 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refreshGrid()
     }
 
-    /// Asks macOS for Accessibility permission so Clawdy can read which Claude window is in front
+    /// Asks macOS for Accessibility permission so Claude Pets can read which Claude window is in front
     /// (used to clear Cowork "done" badges precisely). Only ever runs when you click this.
     /// Not granted yet: macOS shows its own "open System Settings" prompt. Already
     /// granted: nothing to ask for, so go straight to the pane where it can be taken back.
@@ -188,19 +189,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let url = URL(string: pane) { NSWorkspace.shared.open(url) }
     }
 
-    /// Swaps this copy of Clawdy for the new one, then relaunches. Only ever runs when you
+    /// The app used to be called Clawdy, under the bundle id app.clawdy.Clawdy. Once, on the
+    /// first launch under the new name, copy those settings over (pet picks, colours, sounds)
+    /// and point hooks installed back then at the new script, so nothing resets.
+    private static func carryOverFromClawdy() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: "carriedOverFromClawdy") else { return }
+        if let old = defaults.persistentDomain(forName: "app.clawdy.Clawdy") {
+            for (key, value) in old where defaults.object(forKey: key) == nil {
+                defaults.set(value, forKey: key)
+            }
+        }
+        HookInstaller.replaceClawdyHooks()
+        defaults.set(true, forKey: "carriedOverFromClawdy")
+    }
+
+    /// Swaps this copy of Claude Pets for the new one, then relaunches. Only ever runs when you
     /// click the update row; a failure leaves the current version exactly as it was.
     private func installUpdate(_ release: Updater.Release) {
         let alert = NSAlert()
-        alert.messageText = "Update Clawdy to \(release.version)?"
-        alert.informativeText = "Clawdy will download the new version, replace itself and restart. Your settings and pets come back with it."
+        alert.messageText = "Update Claude Pets to \(release.version)?"
+        alert.informativeText = "Claude Pets will download the new version, replace itself and restart. Your settings and pets come back with it."
         alert.addButton(withTitle: "Update")
         alert.addButton(withTitle: "Not now")
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         updater.install(release) { [weak self] problem in
             guard let problem else { return }
-            self?.notify("Could not update Clawdy", problem)
+            self?.notify("Could not update Claude Pets", problem)
         }
     }
 
@@ -258,7 +274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             rows.append(MenuRow.Model(title: busy ? "Updating…" : "Update to \(release.version)",
                                       leading: .glyph(IconFont.sparkles),
                                       control: .action(busy ? "" : "Install"),
-                                      tooltip: busy ? nil : "Download and restart Clawdy",
+                                      tooltip: busy ? nil : "Download and restart Claude Pets",
                                       closesMenu: true,
                                       action: busy ? nil : { [weak self] in self?.installUpdate(release) }))
         }

@@ -40,7 +40,7 @@ enum CrabPalette {
     /// session and the folder it went to. If it came `idleReset` or more after the one before it,
     /// forget who had which colour; either way that folder claims its colour first, so the one you
     /// came back to is the one that gets terracotta. The last message time is on disk, so a gap
-    /// counts whether Clawdy was running through it or not.
+    /// counts whether Claude Pets was running through it or not.
     static func notePrompt(at time: TimeInterval, project key: String) {
         guard time > lastPrompt else { return }
         if time - lastPrompt >= idleReset {
@@ -87,6 +87,9 @@ final class CrabNode: SKNode {
     static let petTagY: CGFloat = 58 * petScale
     /// A seen-and-done session is not worth reading, so its tag fades back to this much opacity.
     static let restingTagAlpha: CGFloat = 0.35
+    /// A one-line tag's pill height, and how much taller each extra line makes it.
+    static let tagLineHeight: CGFloat = 15
+    static let tagLineGap: CGFloat = 11
     static let babyScale: CGFloat = 0.42
     /// Status badges are off for now (the pet's pose already says it). Flip to bring them back.
     static var badgesEnabled = false
@@ -95,7 +98,8 @@ final class CrabNode: SKNode {
     let isBaby: Bool
     private let usesPet: Bool
     private let sprite: SKSpriteNode
-    private let nameLabel = SKLabelNode()
+    /// Top line first. The second label is only used when the title needs two lines.
+    private let nameLabels = [SKLabelNode(), SKLabelNode()]
     private let nameBackground = SKShapeNode()
     private let tagNode = SKNode()
     private var tagBaseY: CGFloat = 0
@@ -186,14 +190,16 @@ final class CrabNode: SKNode {
 
     /// Width of the name tag, so the scene can keep neighbours' tags from overlapping.
     private(set) var tagWidth: CGFloat = 22
-    /// 0 = normal height; higher levels lift the tag so it clears a close neighbour's tag.
-    var tagLevel = 0 {
+    /// Height of the tag's pill: one line or two. The scene stacks neighbours' tags by it.
+    private(set) var tagHeight: CGFloat = CrabNode.tagLineHeight
+    /// 0 = normal height; more lifts the tag (in points) so it clears a close neighbour's tag.
+    var tagLift: CGFloat = 0 {
         didSet {
-            guard tagLevel != oldValue else { return }
+            guard tagLift != oldValue else { return }
             // Only cancel a previous lift — killing every action here would also kill an
             // in-flight fade and strand the tag half-dim until the next status change.
             tagNode.removeAction(forKey: "lift")
-            tagNode.run(.moveTo(y: tagBaseY + CGFloat(tagLevel) * 15, duration: 0.15), withKey: "lift")
+            tagNode.run(.moveTo(y: tagBaseY + tagLift, duration: 0.15), withKey: "lift")
         }
     }
 
@@ -251,12 +257,14 @@ final class CrabNode: SKNode {
     // MARK: - Name tag
 
     private func buildNameTag() {
-        nameLabel.fontName = "Menlo-Bold"
-        nameLabel.fontSize = 9.5
-        nameLabel.fontColor = .white
-        nameLabel.verticalAlignmentMode = .center
-        nameLabel.horizontalAlignmentMode = .center
-        nameLabel.zPosition = 2
+        for label in nameLabels {
+            label.fontName = "Menlo-Bold"
+            label.fontSize = 9.5
+            label.fontColor = .white
+            label.verticalAlignmentMode = .center
+            label.horizontalAlignmentMode = .center
+            label.zPosition = 2
+        }
         nameBackground.strokeColor = .clear
         nameBackground.fillColor = NSColor.black.withAlphaComponent(0.62)
         nameBackground.zPosition = 1
@@ -266,20 +274,54 @@ final class CrabNode: SKNode {
         tagNode.position = CGPoint(x: 0, y: tagBaseY)
         tagNode.zPosition = 6
         tagNode.addChild(nameBackground)
-        tagNode.addChild(nameLabel)
+        nameLabels.forEach(tagNode.addChild)
         addChild(tagNode)
     }
 
     private func updateLabel() {
         guard !isBaby else { return }
-        let short = title.count > 17 ? String(title.prefix(16)) + "…" : title
+        let lines = Self.tagLines(for: title)
         // No chat title yet (just-started or shutting-down session): no tag at all.
-        tagNode.isHidden = short.isEmpty
-        nameLabel.text = short
-        let w = max(nameLabel.frame.width + 14, 24), h: CGFloat = 15
-        tagWidth = short.isEmpty ? 0 : w
-        nameBackground.path = CGPath(roundedRect: CGRect(x: -w / 2, y: -h / 2, width: w, height: h),
+        tagNode.isHidden = lines.isEmpty
+        // The bottom line sits where a one-line tag always did; a second line goes on top of it.
+        for (i, label) in nameLabels.enumerated() {
+            label.isHidden = i >= lines.count
+            label.text = i < lines.count ? lines[i] : ""
+            label.position.y = CGFloat(lines.count - 1 - i) * Self.tagLineGap
+        }
+        let textWidth = nameLabels.prefix(lines.count).map(\.frame.width).max() ?? 0
+        let w = max(textWidth + 14, 24)
+        let h = Self.tagLineHeight + CGFloat(max(lines.count - 1, 0)) * Self.tagLineGap
+        tagWidth = lines.isEmpty ? 0 : w
+        tagHeight = h
+        // The pill grows upward, so a two-line tag never covers the crab.
+        nameBackground.path = CGPath(roundedRect: CGRect(x: -w / 2, y: -Self.tagLineHeight / 2, width: w, height: h),
                                      cornerWidth: 4, cornerHeight: 4, transform: nil)
+        if bubble.isShowing { refreshBubble() }
+    }
+
+    /// The chat title as at most `maxLines` tag lines of `perLine` characters (Menlo is monospaced),
+    /// broken between words where it can, ending in "…" when it still doesn't all fit.
+    static func tagLines(for title: String, perLine: Int = 17, maxLines: Int = 2) -> [String] {
+        var rest = title.split(whereSeparator: \.isWhitespace).joined(separator: " ")[...]
+        var lines: [String] = []
+        while !rest.isEmpty {
+            if rest.count <= perLine { lines.append(String(rest)); break }
+            if lines.count == maxLines - 1 {
+                lines.append(rest.prefix(perLine - 1).trimmingCharacters(in: .whitespaces) + "…")
+                break
+            }
+            // Break at the last space that keeps the line short enough; one long word just gets cut.
+            let head = rest.prefix(perLine + 1)
+            if let space = head.lastIndex(of: " ") {
+                lines.append(String(rest[..<space]))
+                rest = rest[rest.index(after: space)...]
+            } else {
+                lines.append(String(rest.prefix(perLine)))
+                rest = rest.dropFirst(perLine)
+            }
+        }
+        return lines
     }
 
     /// Dim the whole tag (pill + text) once the session is done and seen; full strength otherwise.
@@ -321,7 +363,7 @@ final class CrabNode: SKNode {
     private func refreshBubble() {
         let now = Date().timeIntervalSince1970
         let lines = (detail ?? CrabDetail()).lines(status: status, helpers: helpers, now: now)
-        bubble.position = CGPoint(x: 0, y: tagBaseY + CGFloat(tagLevel) * 15 + 7.5 + 3)
+        bubble.position = CGPoint(x: 0, y: tagBaseY + tagLift + tagHeight - Self.tagLineHeight / 2 + 3)
         bubble.render(lines: lines, dotColor: HoverBubble.dotColor(for: status),
                       spinning: status == .working || status == .usingTool,
                       worldX: position.x, sceneWidth: scene?.size.width ?? .greatestFiniteMagnitude)

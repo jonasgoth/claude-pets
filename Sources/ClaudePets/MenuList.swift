@@ -56,7 +56,7 @@ final class MenuToggle: NSView {
 final class MenuHeaderView: NSView {
     static let height: CGFloat = 24
 
-    private let nameLabel = NSTextField(labelWithString: "Clawdy")
+    private let nameLabel = NSTextField(labelWithString: "Claude Pets")
     private let versionLabel = NSTextField(labelWithString: "")
 
     init(version: String) {
@@ -70,7 +70,7 @@ final class MenuHeaderView: NSView {
         versionLabel.alignment = .right
         addSubview(nameLabel)
         addSubview(versionLabel)
-        setAccessibilityLabel("Clawdy \(version)")
+        setAccessibilityLabel("Claude Pets \(version)")
     }
 
     required init?(coder: NSCoder) { fatalError() }

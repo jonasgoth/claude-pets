@@ -33,7 +33,7 @@ enum IconFont {
 
     /// Registers the bundled font once, on the first icon anyone asks for.
     private static let registered: Bool = {
-        guard let url = Bundle.main.url(forResource: "Hugeicons-Clawdy",
+        guard let url = Bundle.main.url(forResource: "Hugeicons-ClaudePets",
                                         withExtension: "ttf",
                                         subdirectory: "fonts") else { return false }
         return CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)

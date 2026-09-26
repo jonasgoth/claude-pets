@@ -52,7 +52,7 @@ enum PetLibrary {
     /// True once the manifest and sheets are found in the app bundle.
     static var isAvailable: Bool { load(); return !sheets.isEmpty }
 
-    private static let debug = ProcessInfo.processInfo.environment["CLAWDY_DEBUG"] == "1"
+    private static let debug = ProcessInfo.processInfo.environment["CLAUDE_PETS_DEBUG"] == "1"
 
     private static func load() {
         guard !loaded else { return }

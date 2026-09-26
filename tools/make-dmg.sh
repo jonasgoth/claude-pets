@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds the app and wraps it in a drag-to-Applications DMG: build/Clawdy-<version>.dmg
+# Builds the app and wraps it in a drag-to-Applications DMG: build/claude-pets-<version>.dmg
 # The disk image opens as a window with the crab on the left, Applications on the
 # right and an arrow in between (Assets/dmg/background.tiff, drawn by
 # tools/make-dmg-background.py).
@@ -7,16 +7,16 @@
 # The app is ad-hoc signed unless a "Developer ID Application" certificate is in your keychain.
 # Ad-hoc builds run fine locally; other people must right-click > Open the first time.
 # To ship without that warning you need an Apple Developer account, then:
-#   1. codesign --force --options runtime --timestamp --sign "Developer ID Application: …" build/Clawdy.app
-#   2. xcrun notarytool submit build/Clawdy-<version>.dmg --keychain-profile <profile> --wait
-#   3. xcrun stapler staple build/Clawdy-<version>.dmg
+#   1. codesign --force --options runtime --timestamp --sign "Developer ID Application: …" "build/Claude Pets.app"
+#   2. xcrun notarytool submit build/claude-pets-<version>.dmg --keychain-profile <profile> --wait
+#   3. xcrun stapler staple build/claude-pets-<version>.dmg
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ./build.sh
 
-VOL="Clawdy"
-VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' build/Clawdy.app/Contents/Info.plist)"
-OUT="build/Clawdy-${VERSION}.dmg"
+VOL="Claude Pets"
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "build/Claude Pets.app/Contents/Info.plist")"
+OUT="build/claude-pets-${VERSION}.dmg"
 STAGE="build/dmg-stage"
 RW="build/dmg-rw.dmg"
 # Icon centres in the window; keep in step with tools/make-dmg-background.py.
@@ -28,7 +28,7 @@ hdiutil detach "/Volumes/$VOL" -force >/dev/null 2>&1 || true
 
 rm -rf "$STAGE" "$RW" "$OUT"
 mkdir -p "$STAGE/.background"
-cp -R build/Clawdy.app "$STAGE/"
+cp -R "build/Claude Pets.app" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 cp Assets/dmg/background.tiff "$STAGE/.background/background.tiff"
 
@@ -48,7 +48,7 @@ MOUNT="/Volumes/$VOL"
 # replayed layout is identical to the hand-made one.
 LAYOUT="Assets/dmg/DS_Store"
 use_finder=true
-[[ -n "${CI:-}" || "${CLAWDY_DMG_NO_FINDER:-}" == "1" ]] && use_finder=false
+[[ -n "${CI:-}" || "${CLAUDE_PETS_DMG_NO_FINDER:-}" == "1" ]] && use_finder=false
 
 if $use_finder && ! osascript >/dev/null 2>&1 <<APPLESCRIPT
 tell application "Finder"
@@ -64,7 +64,7 @@ tell application "Finder"
     set icon size of opts to 128
     set text size of opts to 13
     set background picture of opts to file ".background:background.tiff"
-    set position of item "Clawdy.app" of container window to {$APP_X, $ICON_Y}
+    set position of item "Claude Pets.app" of container window to {$APP_X, $ICON_Y}
     set position of item "Applications" of container window to {$APPS_X, $ICON_Y}
     update without registering applications
     delay 2

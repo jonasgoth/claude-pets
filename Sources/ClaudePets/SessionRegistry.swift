@@ -6,11 +6,11 @@ struct LiveSession: Equatable {
     let sessionId: String
     let pid: Int
     let cwd: String
-    let name: String          // registry-derived name, e.g. "clawdy-21"
+    let name: String          // registry-derived name, e.g. "claude-pets-21"
     let entrypoint: String     // "cli" or "claude-desktop"
     let startedAt: Double
 
-    /// Last path component of cwd, e.g. "clawdy". Used for color + fallback label.
+    /// Last path component of cwd, e.g. "claude-pets". Used for color + fallback label.
     var projectName: String {
         (cwd as NSString).lastPathComponent.isEmpty ? cwd : (cwd as NSString).lastPathComponent
     }

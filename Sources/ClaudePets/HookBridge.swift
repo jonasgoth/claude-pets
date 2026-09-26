@@ -1,12 +1,12 @@
 import Foundation
 
 /// Instant status signals from Claude Code hooks. The hooks (installed via HookInstaller) write
-/// one small JSON file per session into ~/.clawdy/events/<sessionId>.json. This reads them.
+/// one small JSON file per session into ~/.claude-pets/events/<sessionId>.json. This reads them.
 ///
 /// Hooks are optional: without them, transcript polling still detects working/done/error. Hooks
 /// add instant permission and tool signals, which files alone can only guess at.
 enum HookBridge {
-    static let eventsDir = (NSHomeDirectory() as NSString).appendingPathComponent(".clawdy/events")
+    static let eventsDir = (NSHomeDirectory() as NSString).appendingPathComponent(".claude-pets/events")
 
     struct Event { let state: String; let ts: Double }
 

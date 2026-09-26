@@ -1,4 +1,4 @@
-# Clawdy — plan
+# Claude Pets — plan
 
 Little crab pets on your Mac desktop. One crab per Claude session.
 They show you, at a glance, who is working, who is done, and who needs you.
@@ -127,7 +127,7 @@ Sources (each emits SessionEvent)
   DesktopMetaWatcher   claude-code-sessions/**/local_*.json   (title, lastFocusedAt, archived)
                        local-agent-mode-sessions/**/local_*.json
   CoworkAuditWatcher   local-agent-mode-sessions/**/audit.jsonl (permission, status, result)
-  HookReceiver         tiny hook script writes ~/.clawdy/events/<sid>.json (instant)
+  HookReceiver         tiny hook script writes ~/.claude-pets/events/<sid>.json (instant)
         │
         ▼
   SessionStore         merges everything into one Session per sessionId, runs the state machine
@@ -150,7 +150,7 @@ Why Swift, not Electron: both inspiration apps are Swift. Overlay windows, click
 
 ## 6. Build order (each step is something you can see)
 
-Status: all five phases done. Run `./build.sh --run`; `tools/make-dmg.sh` makes the installer; `tools/render-pets.py` re-bakes the pets. Optional menu items: "Turn on instant updates" (installs hooks) and "Allow window checks" (Accessibility, for Cowork seen-detection). Debug: `CLAWDY_DEBUG=1 build/Clawdy.app/Contents/MacOS/Clawdy` logs status changes, seen-rule inputs and slow ticks. Debug the click-through with `CLAWDY_DEBUG=1 build/Clawdy.app/Contents/MacOS/Clawdy`.
+Status: all five phases done. Run `./build.sh --run`; `tools/make-dmg.sh` makes the installer; `tools/render-pets.py` re-bakes the pets. Optional menu items: "Turn on instant updates" (installs hooks) and "Allow window checks" (Accessibility, for Cowork seen-detection). Debug: `CLAUDE_PETS_DEBUG=1 "build/Claude Pets.app/Contents/MacOS/ClaudePets"` logs status changes, seen-rule inputs and slow ticks. Debug the click-through with `CLAUDE_PETS_DEBUG=1 "build/Claude Pets.app/Contents/MacOS/ClaudePets"`.
 
 **Phase 0 — Skeleton (day 1)** ✅ done 2026-09-12
 Swift package + build script. Menu bar icon. Empty see-through strip along the bottom of the screen. One static crab you can drag. Prove clicks pass through to apps behind it.
@@ -218,4 +218,4 @@ Own crab art. App icon. Sign and notarize. DMG + Homebrew cask. README. MIT lice
 - Crabs live on the Dock's row, in the wallpaper gaps left and right of the Dock (never under it). The Dock's footprint comes from Accessibility when allowed, else an estimate from Dock preferences. If the Dock is hidden or on a side, the whole bottom edge is used. (Changed by Jonas 2026-09-12.)
 - One crab per session, all three sources, each with its own color. Sub-agents are baby crabs that follow the parent. A crab leaves after 5 minutes idle (unless it needs you); badges are hidden for now, the pet's pose carries the state.
 - Archived chats and dead processes walk off. Cowork crabs leave after the `result` event or when archived.
-- Name: Clawdy. Repo: `Package.swift` (Xcode opens it; `./build.sh --run` builds and launches), `Sources/`, `hooks/`, `Assets/`, `PLAN.md`.
+- Name: Claude Pets. Repo: `Package.swift` (Xcode opens it; `./build.sh --run` builds and launches), `Sources/`, `hooks/`, `Assets/`, `PLAN.md`.

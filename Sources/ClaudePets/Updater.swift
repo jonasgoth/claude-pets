@@ -1,8 +1,8 @@
 import AppKit
 
-/// Keeps Clawdy current from its GitHub releases.
+/// Keeps Claude Pets current from its GitHub releases.
 ///
-/// Every release is a `Clawdy-<version>.dmg` attached to a `v<version>` tag, published by
+/// Every release is a `claude-pets-<version>.dmg` attached to a `v<version>` tag, published by
 /// .github/workflows/release.yml. This asks GitHub's API which release is newest, and when
 /// you click the menu row it downloads that DMG, swaps this copy of the app for the one
 /// inside, and relaunches.
@@ -10,12 +10,12 @@ import AppKit
 /// Two details worth knowing:
 ///
 /// - The download goes through URLSession, not a browser, so macOS never marks the file
-///   as quarantined. That matters because Clawdy is ad-hoc signed, not notarized: a
+///   as quarantined. That matters because Claude Pets is ad-hoc signed, not notarized: a
 ///   quarantined copy would be refused outright instead of merely warned about.
 /// - An app cannot delete itself while it is running, so the swap is handed to a small
 ///   shell script that waits for us to quit first.
 final class Updater {
-    static let repo = "jonasgoth/clawdy"
+    static let repo = "jonasgoth/claude-pets"
 
     struct Release {
         let version: String
@@ -49,7 +49,7 @@ final class Updater {
         else { return }
         var request = URLRequest(url: url)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("Clawdy/\(AppDelegate.version)", forHTTPHeaderField: "User-Agent")
+        request.setValue("ClaudePets/\(AppDelegate.version)", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 15
 
         session.dataTask(with: request) { [weak self] data, _, _ in
@@ -102,13 +102,13 @@ final class Updater {
     func install(_ release: Release, done: @escaping (String?) -> Void) {
         let destination = Bundle.main.bundleURL
         guard destination.pathExtension == "app" else {
-            return done("Clawdy is running from a build folder, not an app bundle. "
+            return done("Claude Pets is running from a build folder, not an app bundle. "
                         + "Updating only works on an installed copy.")
         }
         guard FileManager.default.isWritableFile(atPath: destination.deletingLastPathComponent().path)
         else {
-            return done("Clawdy cannot write to \(destination.deletingLastPathComponent().path). "
-                        + "Move Clawdy to your Applications folder and try again.")
+            return done("Claude Pets cannot write to \(destination.deletingLastPathComponent().path). "
+                        + "Move Claude Pets to your Applications folder and try again.")
         }
 
         isInstalling = true
@@ -130,8 +130,8 @@ final class Updater {
 
             // URLSession deletes its temp file the moment this closure returns, so move it first.
             let work = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("clawdy-update-\(UUID().uuidString)")
-            let dmg = work.appendingPathComponent("Clawdy.dmg")
+                .appendingPathComponent("claude-pets-update-\(UUID().uuidString)")
+            let dmg = work.appendingPathComponent("claude-pets.dmg")
             do {
                 try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
                 try FileManager.default.moveItem(at: temp, to: dmg)
@@ -154,7 +154,7 @@ final class Updater {
     /// A problem worth showing the person who clicked Update.
     private struct Problem: Error { let message: String }
 
-    /// Mounts the disk image, copies Clawdy.app off it, unmounts. Returns the copy.
+    /// Mounts the disk image, copies Claude Pets.app off it, unmounts. Returns the copy.
     private static func stageApp(from dmg: URL, into work: URL) -> Result<URL, Problem> {
         let mount = work.appendingPathComponent("mnt")
         try? FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
@@ -164,10 +164,10 @@ final class Updater {
         else { return .failure(Problem(message: "Could not open the downloaded disk image.")) }
         defer { _ = run("/usr/bin/hdiutil", ["detach", mount.path, "-force", "-quiet"]) }
 
-        let source = mount.appendingPathComponent("Clawdy.app")
-        let staged = work.appendingPathComponent("Clawdy.app")
-        guard FileManager.default.fileExists(atPath: source.appendingPathComponent("Contents/MacOS/Clawdy").path)
-        else { return .failure(Problem(message: "The downloaded disk image does not contain Clawdy.")) }
+        let source = mount.appendingPathComponent("Claude Pets.app")
+        let staged = work.appendingPathComponent("Claude Pets.app")
+        guard FileManager.default.fileExists(atPath: source.appendingPathComponent("Contents/MacOS/ClaudePets").path)
+        else { return .failure(Problem(message: "The downloaded disk image does not contain Claude Pets.")) }
         // ditto, not copyItem: it keeps the code signature and the bundle's symlinks intact.
         guard run("/usr/bin/ditto", [source.path, staged.path])
         else { return .failure(Problem(message: "Could not copy the new version off the disk image.")) }
@@ -180,7 +180,7 @@ final class Updater {
         let script = work.appendingPathComponent("swap.sh")
         let body = """
         #!/bin/sh
-        # Written by Clawdy's updater. Waits for the old copy to quit, puts the new one in
+        # Written by the Claude Pets updater. Waits for the old copy to quit, puts the new one in
         # its place, relaunches it, then deletes itself.
         new=\(shellQuoted(staged.path))
         dest=\(shellQuoted(destination.path))
@@ -197,7 +197,7 @@ final class Updater {
         if ditto "$new" "$dest"; then
           rm -rf "$dest.old"
         else
-          # Put the old one back rather than leave the Mac with no Clawdy at all.
+          # Put the old one back rather than leave the Mac with no Claude Pets at all.
           rm -rf "$dest"
           mv "$dest.old" "$dest"
         fi

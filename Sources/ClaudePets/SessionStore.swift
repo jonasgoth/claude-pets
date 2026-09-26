@@ -32,7 +32,7 @@ final class SessionStore {
 
     private weak var scene: PlaypenScene?
     private let seen: SeenDetector
-    private let queue = DispatchQueue(label: "app.clawdy.store", qos: .utility)
+    private let queue = DispatchQueue(label: "app.claudepets.store", qos: .utility)
     private var timer: DispatchSourceTimer?
 
     // Background-queue state.
@@ -57,14 +57,14 @@ final class SessionStore {
     /// Called on the main thread after every update (menu bar count, etc.).
     var onUpdate: (() -> Void)?
 
-    private static let debug = ProcessInfo.processInfo.environment["CLAWDY_DEBUG"] == "1"
+    private static let debug = ProcessInfo.processInfo.environment["CLAUDE_PETS_DEBUG"] == "1"
     private var lastLogged: [String: CrabStatus] = [:]
     private var lastSeenCheckLog: [String: Double] = [:]   // debug: last time an unseen crab's inputs were logged
     private static let stampFormatter: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm:ss.SSS"; return f }()
     private func log(_ message: String) {
         guard Self.debug else { return }
         let stamp = Self.stampFormatter.string(from: Date())
-        FileHandle.standardError.write(("[clawdy] " + stamp + " " + message + "\n").data(using: .utf8)!)
+        FileHandle.standardError.write(("[claude-pets] " + stamp + " " + message + "\n").data(using: .utf8)!)
     }
 
     init(scene: PlaypenScene, seen: SeenDetector) {

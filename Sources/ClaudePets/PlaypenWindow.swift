@@ -155,12 +155,12 @@ final class PlaypenController {
         }
     }
 
-    /// Set CLAWDY_DEBUG=1 to see pass-through flips and the crab's screen rect on stderr.
-    private static let debugEnabled = ProcessInfo.processInfo.environment["CLAWDY_DEBUG"] == "1"
+    /// Set CLAUDE_PETS_DEBUG=1 to see pass-through flips and the crab's screen rect on stderr.
+    private static let debugEnabled = ProcessInfo.processInfo.environment["CLAUDE_PETS_DEBUG"] == "1"
 
     private func debugLog(_ message: String) {
         guard Self.debugEnabled else { return }
-        FileHandle.standardError.write(("[clawdy] " + message + "\n").data(using: .utf8)!)
+        FileHandle.standardError.write(("[claude-pets] " + message + "\n").data(using: .utf8)!)
     }
 
     /// Screen-coordinate rect of the first crab (bottom-left origin). Debug only.

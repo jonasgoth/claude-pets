@@ -3,7 +3,7 @@ import Foundation
 /// What the hover bubble says about a session beyond its status: where it lives, which tool it
 /// has in hand, and when its current state began. Built by SessionStore, read by CrabNode.
 struct CrabDetail: Equatable {
-    /// Project folder name, e.g. "clawdy".
+    /// Project folder name, e.g. "claude-pets".
     var project = ""
     /// Where the session runs: "Terminal", "Claude app" or "Cowork".
     var source = ""

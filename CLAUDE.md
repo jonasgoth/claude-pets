@@ -1,4 +1,4 @@
-# Clawdy
+# Claude Pets
 
 A menu-bar crab that shows what your Claude Code sessions are doing.
 
@@ -10,24 +10,24 @@ A menu-bar crab that shows what your Claude Code sessions are doing.
 ./build.sh --run
 ```
 
-**Never run `./.build/debug/Clawdy` directly.** That bare binary has no
+**Never run `./.build/debug/ClaudePets` directly.** That bare binary has no
 `Resources/` folder beside it, so `PetLibrary.isAvailable` is false and every
 crab silently falls back to the old pixel-crab sprite. The app looks broken /
 out of date even though the code changes are in — a confusing false alarm.
 
-`./build.sh` assembles `build/Clawdy.app` with `Assets/pets` copied into
+`./build.sh` assembles `build/Claude Pets.app` with `Assets/pets` copied into
 `Contents/Resources/pets`, which is what `PetLibrary` reads.
 
 Before launching, stop anything already running, or you get two copies of every crab:
 
 ```bash
-pkill -f Clawdy
+pkill -x ClaudePets
 ```
 
 With debug logging:
 
 ```bash
-CLAWDY_DEBUG=1 build/Clawdy.app/Contents/MacOS/Clawdy
+CLAUDE_PETS_DEBUG=1 "build/Claude Pets.app/Contents/MacOS/ClaudePets"
 ```
 
 ## Pets
@@ -39,10 +39,10 @@ maps each `CrabStatus` to a sheet. Re-bake only when the SVGs change.
 ## Layout
 
 - `PLAN.md` — the build plan, phases 0-5.
-- `Sources/Clawdy/SessionStore.swift` — decides each session's `CrabStatus`.
-- `Sources/Clawdy/DesktopLocalStorage.swift` — reads the Desktop app's own "unread" dot and
+- `Sources/ClaudePets/SessionStore.swift` — decides each session's `CrabStatus`.
+- `Sources/ClaudePets/DesktopLocalStorage.swift` — reads the Desktop app's own "unread" dot and
   "chat on screen" record out of its web storage (LevelDB). That is the truth for "seen" on
   Desktop Code chats, but it reaches disk late (seconds to ~2 min), so it corrects guesses
   rather than replacing them.
-- `Sources/Clawdy/PlaypenScene.swift` — the per-frame brain (wander, unstack, tags).
-- `Sources/Clawdy/CrabNode.swift` — one crab: sprite, animation, name tag.
+- `Sources/ClaudePets/PlaypenScene.swift` — the per-frame brain (wander, unstack, tags).
+- `Sources/ClaudePets/CrabNode.swift` — one crab: sprite, animation, name tag.

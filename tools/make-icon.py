@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draw the Clawdy app icon and bake it into Assets/AppIcon.{svg,png,icns}.
+"""Draw the Claude Pets app icon and bake it into Assets/AppIcon.{svg,png,icns}.
 
 One cute crab on an Apple-style squircle: shell, raised claws, big sparkly eyes,
 blush, smile. All vector, so it stays sharp from 1024px down to the 16px Finder
