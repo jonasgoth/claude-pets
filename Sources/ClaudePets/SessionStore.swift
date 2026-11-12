@@ -37,15 +37,29 @@ final class SessionStore {
 
     // Background-queue state.
     private var readers: [String: TranscriptReader] = [:]
-    private let desktopMeta = DesktopMetaIndex()
-    private let cowork = CoworkWatcher()
-    private let desktopStorage = DesktopLocalStorage()
+    /// One Claude app copy's Desktop-side readers. The normal app is one; each extra profile
+    /// ("Claude Jgo") is another, with its own folders, chats and unread dots.
+    final class ProfileState {
+        let profile: ClaudeProfile
+        let desktopMeta: DesktopMetaIndex
+        let cowork: CoworkWatcher
+        let desktopStorage: DesktopLocalStorage
+        var coworkCache: [CoworkWatcher.Session] = []
+        var lastDesktopScan: Double = 0
+        var lastCoworkScan: Double = 0
+        var lastStorageScan: Double = 0
+        init(_ profile: ClaudeProfile) {
+            self.profile = profile
+            desktopMeta = DesktopMetaIndex(baseDir: profile.desktopMetaDir)
+            cowork = CoworkWatcher(baseDir: profile.coworkDir)
+            desktopStorage = DesktopLocalStorage(baseDir: profile.localStorageDir)
+        }
+        var watchRoots: [String] { [profile.desktopMetaDir, profile.coworkDir, profile.localStorageDir] }
+    }
+    private var profiles: [ProfileState] = ClaudeProfile.discover().map(ProfileState.init)
+    private var lastProfileCheck: Double = 0
     private var ttyByPid: [Int: String?] = [:]
-    private let watcher = FileWatcher(roots: [DesktopMetaIndex.baseDir, CoworkWatcher.baseDir, DesktopLocalStorage.baseDir])
-    private var coworkCache: [CoworkWatcher.Session] = []
-    private var lastDesktopScan: Double = 0
-    private var lastCoworkScan: Double = 0
-    private var lastStorageScan: Double = 0
+    private var watcher: FileWatcher
     static let fallbackRescan: TimeInterval = 30
     static let storageRescan: TimeInterval = 2       // FSEvents stays quiet for appends to Desktop's storage log, so poll it (a few stats)
     private var seenDoneAt: [String: Double] = [:]   // session id → the finish time that has been seen
@@ -70,6 +84,7 @@ final class SessionStore {
     init(scene: PlaypenScene, seen: SeenDetector) {
         self.scene = scene
         self.seen = seen
+        watcher = FileWatcher(roots: profiles.flatMap(\.watchRoots))
     }
 
     func start() {
@@ -106,24 +121,28 @@ final class SessionStore {
         }
         let look = seen.snapshot()
         let hooks = HookBridge.scan()
-        let live = SessionRegistry.scan()
+        if now - lastProfileCheck > Self.fallbackRescan { refreshProfiles(now: now) }
+        let live = SessionRegistry.scan(profiles: profiles.map(\.profile))
         // Folder trees are only rescanned when FSEvents saw a change (plus a slow safety rescan).
-        if watcher.consume(DesktopMetaIndex.baseDir) || now - lastDesktopScan > Self.fallbackRescan {
-            if Self.debug, now - lastDesktopScan <= Self.fallbackRescan { log("fs: meta folder changed") }
-            desktopMeta.refresh(now: now)
-            lastDesktopScan = now
+        for ps in profiles {
+            let tag = ps.profile.isMain ? "" : " [\(ps.profile.name)]"
+            if watcher.consume(ps.profile.desktopMetaDir) || now - ps.lastDesktopScan > Self.fallbackRescan {
+                if Self.debug, now - ps.lastDesktopScan <= Self.fallbackRescan { log("fs: meta folder changed\(tag)") }
+                ps.desktopMeta.refresh(now: now)
+                ps.lastDesktopScan = now
+            }
+            if watcher.consume(ps.profile.coworkDir) || now - ps.lastCoworkScan > Self.fallbackRescan {
+                ps.coworkCache = ps.cowork.scan(now: now)
+                ps.lastCoworkScan = now
+            }
+            if watcher.consume(ps.profile.localStorageDir) || now - ps.lastStorageScan > Self.storageRescan {
+                let before = ps.desktopStorage.state?.writtenAt
+                ps.desktopStorage.refresh()
+                if Self.debug, let w = ps.desktopStorage.state?.writtenAt, w != before { log("storage record now from \(Self.stampFormatter.string(from: Date(timeIntervalSince1970: w)))\(tag)") }
+                ps.lastStorageScan = now
+            }
         }
-        if watcher.consume(CoworkWatcher.baseDir) || now - lastCoworkScan > Self.fallbackRescan {
-            coworkCache = cowork.scan(now: now)
-            lastCoworkScan = now
-        }
-        if watcher.consume(DesktopLocalStorage.baseDir) || now - lastStorageScan > Self.storageRescan {
-            let before = desktopStorage.state?.writtenAt
-            desktopStorage.refresh()
-            if Self.debug, let w = desktopStorage.state?.writtenAt, w != before { log("storage record now from \(Self.stampFormatter.string(from: Date(timeIntervalSince1970: w)))") }
-            lastStorageScan = now
-        }
-        let coworkSessions = coworkCache
+        let coworkSessions = profiles.flatMap { ps in ps.coworkCache.map { (ps, $0) } }
 
         let wantsTTY = live.contains { $0.entrypoint == "cli" }
         DispatchQueue.main.async { [seen] in seen.wantsTerminalTTY = wantsTTY }
@@ -135,7 +154,7 @@ final class SessionStore {
         // one before starts the shell colours over, and its folder picks first (see CrabPalette).
         var newestPrompt: (time: Double, project: String)?
         for session in live {
-            let reader = reader(for: session.sessionId)
+            let reader = reader(for: session)
             reader.refresh()
             if reader.lastPromptTime > newestPrompt?.time ?? 0 {
                 newestPrompt = (reader.lastPromptTime, Self.projectKey(for: session))
@@ -144,11 +163,12 @@ final class SessionStore {
         if let newestPrompt { CrabPalette.notePrompt(at: newestPrompt.time, project: newestPrompt.project) }
 
         for session in live.sorted(by: { $0.startedAt < $1.startedAt }) {
-            let meta = desktopMeta.meta(for: session.sessionId)
+            let ps = state(for: session.profile)
+            let meta = ps.desktopMeta.meta(for: session.sessionId)
             if meta?.isArchived == true { continue }          // archived chats walk off
             liveIds.insert(session.sessionId)
 
-            let reader = reader(for: session.sessionId)       // refreshed just above
+            let reader = reader(for: session)                 // refreshed just above
             // Nothing written yet: this chat has not started. Clicking "New" (or switching folders
             // in a new chat) spins up a process that lives under a second and never writes a line.
             // Without this it earns a crab that pops in and walks straight back off again.
@@ -169,12 +189,12 @@ final class SessionStore {
                 let doneAt = reader.idleSince > 0 ? reader.idleSince
                     : (reader.toolUnanswered ? reader.lastToolUseTime : reader.lastEventTime)
                 var seenNow: Bool
-                switch desktopVerdict(meta: meta, doneAt: doneAt, look: look, now: now) {
+                switch desktopVerdict(meta: meta, in: ps, doneAt: doneAt, look: look, now: now) {
                 case .seen:   seenNow = true                      // Desktop's own unread dot decides…
                 case .unseen: seenNow = false; seenDoneAt[session.sessionId] = nil   // …and overrules an earlier guess
                 case .notYet: seenNow = seenDoneAt[session.sessionId] == doneAt      // no dot, but you have not looked yet
                 case nil:     seenNow = seenDoneAt[session.sessionId] == doneAt      // Desktop's record is too old to say
-                    || isSeen(session: session, doneAt: doneAt, meta: meta, look: look, now: now)
+                    || isSeen(session: session, in: ps, doneAt: doneAt, meta: meta, look: look, now: now)
                 }
                 // We took you there ourselves (crab or menu click), after it finished: that is not a
                 // guess, so it beats every other signal — including Desktop's minute-old unread dot.
@@ -184,13 +204,13 @@ final class SessionStore {
                    && !(seenNow && lastLogged[session.sessionId] == .dormant)) {
                     lastSeenCheckLog[session.sessionId] = now
                     let lf = meta.map { Int($0.lastFocusedAt - doneAt) } ?? -999999
-                    let cf = look.claudeFrontSince.map { Int(now - $0) } ?? -1
-                    let ls = desktopStorage.state
+                    let cf = claudeFrontSince(for: ps.profile, look: look).map { Int(now - $0) } ?? -1
+                    let ls = ps.desktopStorage.state
                     let unread = meta.map { ls?.unreadIds.contains($0.localId) ?? false } ?? false
                     let onScreen = meta.map { ls?.currentSessionId == $0.localId } ?? false
                     let lsAge = ls.map { Int($0.writtenAt - doneAt) } ?? -999999
-                    let verdict = desktopVerdict(meta: meta, doneAt: doneAt, look: look, now: now).map { "\($0)" } ?? "nil"
-                    log("seen-check \(session.sessionId.prefix(8)): verdict=\(verdict) doneAt=\(Self.stampFormatter.string(from: Date(timeIntervalSince1970: doneAt))) lastFocusedAt=\(meta.map { Self.stampFormatter.string(from: Date(timeIntervalSince1970: $0.lastFocusedAt)) } ?? "nil") front=\(look.frontBundleId ?? "nil") claudeFrontFor=\(cf)s focusedChat=\(desktopMeta.mostRecentlyFocusedId?.prefix(8) ?? "nil") lastFocused-doneAt=\(lf)s desktopUnread=\(unread) desktopOnScreen=\(onScreen) storageWritten-doneAt=\(lsAge)s canSee=\(look.canSee) -> \(seenNow ? "SEEN" : "unseen")")
+                    let verdict = desktopVerdict(meta: meta, in: ps, doneAt: doneAt, look: look, now: now).map { "\($0)" } ?? "nil"
+                    log("seen-check \(session.sessionId.prefix(8)): verdict=\(verdict) doneAt=\(Self.stampFormatter.string(from: Date(timeIntervalSince1970: doneAt))) lastFocusedAt=\(meta.map { Self.stampFormatter.string(from: Date(timeIntervalSince1970: $0.lastFocusedAt)) } ?? "nil") front=\(look.frontBundleId ?? "nil") claudeFrontFor=\(cf)s focusedChat=\(ps.desktopMeta.mostRecentlyFocusedId?.prefix(8) ?? "nil") lastFocused-doneAt=\(lf)s desktopUnread=\(unread) desktopOnScreen=\(onScreen) storageWritten-doneAt=\(lsAge)s canSee=\(look.canSee) -> \(seenNow ? "SEEN" : "unseen")")
                 }
                 if seenNow {
                     seenDoneAt[session.sessionId] = doneAt
@@ -206,7 +226,7 @@ final class SessionStore {
             // is a placeholder for the menu, not something to show over the pet.
             // Where a click on this row (or its crab) goes: the Desktop chat if there is one,
             // otherwise the terminal window the session is running in.
-            let open = SessionOpener.desktopTarget(localId: meta?.localId)
+            let open = SessionOpener.desktopTarget(localId: meta?.localId, app: session.profile.appPath)
                 ?? tty(for: session.pid).map { .terminal(tty: $0, pid: session.pid) }
 
             let chatTitle = meta?.title ?? reader.title
@@ -236,14 +256,14 @@ final class SessionStore {
             }
         }
 
-        for session in coworkSessions {
+        for (ps, session) in coworkSessions {
             liveIds.insert(session.sessionId)
             var status = session.status
             if status.isUnseenFinish {
                 let doneAt = session.lastActivity
                 if seenDoneAt[session.sessionId] == doneAt
                     || openedAt[session.sessionId] ?? 0 >= doneAt - 0.5
-                    || isCoworkSeen(title: session.title, doneAt: doneAt, look: look, now: now) {
+                    || isCoworkSeen(title: session.title, profile: ps.profile, doneAt: doneAt, look: look, now: now) {
                     seenDoneAt[session.sessionId] = doneAt
                     status = .doneSeen
                 }
@@ -257,13 +277,14 @@ final class SessionStore {
             }
             if !status.isBusy, !status.needsYou, now - session.lastActivity > Self.hideAfterIdle {
                 newRows.append(Row(id: session.sessionId, title: session.title, status: .dormant, lastActivity: session.lastActivity,
-                                   open: SessionOpener.desktopTarget(localId: session.localId, path: "needs-input")))
+                                   open: SessionOpener.desktopTarget(localId: session.localId, path: "needs-input", app: ps.profile.appPath)))
                 continue
             }
             let hue = CrabPalette.hueDegrees(forProject: Self.coworkProjectKey)
-            let open = SessionOpener.desktopTarget(localId: session.localId, path: "needs-input")
+            let open = SessionOpener.desktopTarget(localId: session.localId, path: "needs-input", app: ps.profile.appPath)
             snapshot.crabs.append(CrabSnapshot(id: session.sessionId, title: session.title, hue: hue, status: status,
-                                               detail: CrabDetail(project: session.projectName, source: "Cowork",
+                                               detail: CrabDetail(project: session.projectName,
+                                                                  source: ps.profile.isMain ? "Cowork" : "Cowork · \(ps.profile.name)",
                                                                   since: session.lastActivity), open: open))
             newRows.append(Row(id: session.sessionId, title: session.title, status: status, lastActivity: session.lastActivity, open: open))
         }
@@ -307,7 +328,8 @@ final class SessionStore {
         var d = CrabDetail()
         d.jobs = jobs
         d.project = session.projectName
-        d.source = session.entrypoint == "cli" ? "Terminal" : "Claude app"
+        d.source = session.entrypoint == "cli" ? "Terminal"
+            : (session.profile.isMain ? "Claude app" : session.profile.name)
         d.autoMode = reader.permissionModeIsAuto
         if reader.toolUnanswered || status == .usingTool, !reader.lastToolLabel.isEmpty {
             d.tool = CrabDetail.toolLabel(reader.lastToolLabel)
@@ -323,11 +345,45 @@ final class SessionStore {
         return d
     }
 
-    private func reader(for id: String) -> TranscriptReader {
-        if let r = readers[id] { return r }
-        let r = TranscriptReader(sessionId: id)
-        readers[id] = r
+    private func reader(for session: LiveSession) -> TranscriptReader {
+        if let r = readers[session.sessionId] { return r }
+        let r = TranscriptReader(sessionId: session.sessionId, projectsDir: session.profile.projectsDir)
+        readers[session.sessionId] = r
         return r
+    }
+
+    // MARK: - Profiles
+
+    /// Pick up a Claude profile made (or removed) while we run. Existing readers are kept, so
+    /// nothing re-reads from scratch; the folder watcher restarts only when the list changed.
+    private func refreshProfiles(now: Double) {
+        lastProfileCheck = now
+        let found = ClaudeProfile.discover()
+        guard found != profiles.map(\.profile) else { return }
+        profiles = found.map { p in profiles.first { $0.profile == p } ?? ProfileState(p) }
+        watcher.stop()
+        watcher = FileWatcher(roots: profiles.flatMap(\.watchRoots))
+        watcher.start(queue: queue)
+        log("profiles: \(found.map(\.name).joined(separator: ", "))")
+    }
+
+    private func state(for profile: ClaudeProfile) -> ProfileState {
+        if let ps = profiles.first(where: { $0.profile == profile }) { return ps }
+        let ps = ProfileState(profile)        // only if a profile vanished between two lines
+        return ps
+    }
+
+    /// When this profile's Claude app came to the front, nil if it isn't in front. Every profile
+    /// is a copy of the same app, so "Claude is in front" alone would let you read a Claude Jgo
+    /// chat by looking at the normal app.
+    private func claudeFrontSince(for profile: ClaudeProfile, look: SeenDetector.Snapshot) -> Double? {
+        guard let since = look.claudeFrontSince else { return nil }
+        guard let front = look.claudeFrontAppPath else { return since }
+        func same(_ a: String) -> Bool { URL(fileURLWithPath: a).resolvingSymlinksInPath().path == front }
+        if let app = profile.appPath { return same(app) ? since : nil }
+        // No known app for this profile: it is in front unless another profile's app is.
+        let other = profiles.contains { $0.profile != profile && ($0.profile.appPath.map(same) ?? false) }
+        return other ? nil : since
     }
 
     // MARK: - Status
@@ -390,7 +446,7 @@ final class SessionStore {
 
     /// Has the user actually looked at this chat since it finished? Never true from touching the
     /// crab. Never true while the screen is locked or asleep.
-    private func isSeen(session: LiveSession, doneAt: Double, meta: DesktopMetaIndex.Meta?,
+    private func isSeen(session: LiveSession, in ps: ProfileState, doneAt: Double, meta: DesktopMetaIndex.Meta?,
                         look: SeenDetector.Snapshot, now: Double) -> Bool {
         guard look.canSee, doneAt > 0 else { return false }
 
@@ -405,9 +461,10 @@ final class SessionStore {
         // Desktop Code tab, before Desktop's own record has caught up with this finish.
         // 1. You opened the chat after it finished (Desktop writes lastFocusedAt within a second),
         //    and the Claude app is in front (a bump while it sits behind a browser is not a read).
-        if let meta, meta.lastFocusedAt >= doneAt - 0.5, look.claudeFrontSince != nil { return true }
+        let claudeFront = claudeFrontSince(for: ps.profile, look: look)
+        if let meta, meta.lastFocusedAt >= doneAt - 0.5, claudeFront != nil { return true }
         // 2. It is the chat on screen, and Claude has been in front long enough since the finish.
-        guard let meta, onScreenLocalId() == meta.localId, let since = look.claudeFrontSince else { return false }
+        guard let meta, onScreenLocalId(in: ps) == meta.localId, let since = claudeFront else { return false }
         return max(since, doneAt) + Self.lookDuration <= now
     }
 
@@ -415,9 +472,9 @@ final class SessionStore {
     /// reaches disk up to a minute late (its web storage is flushed on a timer). A click into any
     /// chat after that record was written (`lastFocusedAt`, which lands within a second) is invisible
     /// to it, so then the newest click is the better answer. Nil means a non-chat view (new chat…).
-    private func onScreenLocalId() -> String? {
-        let newestClick = desktopMeta.mostRecentlyFocusedId.flatMap { desktopMeta.meta(for: $0) }
-        if let ls = desktopStorage.state, ls.writtenAt > newestClickAt() + Self.storageMargin {
+    private func onScreenLocalId(in ps: ProfileState) -> String? {
+        let newestClick = ps.desktopMeta.mostRecentlyFocusedId.flatMap { ps.desktopMeta.meta(for: $0) }
+        if let ls = ps.desktopStorage.state, ls.writtenAt > newestClickAt(in: ps) + Self.storageMargin {
             return ls.currentSessionId
         }
         return newestClick?.localId
@@ -433,15 +490,16 @@ final class SessionStore {
     /// that were not real reads). Nil: nothing on disk postdates the finish, so the caller guesses.
     /// `.notYet`: the chat was on screen when it finished, but you have not had the app in front
     /// long enough since with it still up.
-    private func desktopVerdict(meta: DesktopMetaIndex.Meta?, doneAt: Double,
+    private func desktopVerdict(meta: DesktopMetaIndex.Meta?, in ps: ProfileState, doneAt: Double,
                                 look: SeenDetector.Snapshot, now: Double) -> DesktopVerdict? {
-        guard let meta, let ls = desktopStorage.state, doneAt > 0 else { return nil }
+        guard let meta, let ls = ps.desktopStorage.state, doneAt > 0 else { return nil }
+        let claudeFront = claudeFrontSince(for: ps.profile, look: look)
         let openedAfterFinish = meta.lastFocusedAt >= doneAt - 0.5
         let recordAfterClick = ls.writtenAt > meta.lastFocusedAt + Self.storageMargin
         let recordAfterFinish = ls.writtenAt > doneAt + Self.storageMargin
         // Opening the chat counts once the Claude app is actually in front (a bump while it sits
         // behind a browser is not a read); the store checks again every second, so this is instant.
-        let claudeUp = look.canSee && look.claudeFrontSince != nil
+        let claudeUp = look.canSee && claudeFront != nil
         if ls.unreadIds.contains(meta.localId) || ls.explicitUnreadIds.contains(meta.localId) {
             // Desktop drops the dot the moment you open the chat, but that reaches disk with its
             // next flush. Until then a newer click is the truth; otherwise the dot is.
@@ -454,19 +512,19 @@ final class SessionStore {
         // once the app has been in front long enough with it still up, or once you have clicked on
         // to another chat since (which you did from the app, with this one in view).
         guard look.canSee else { return .notYet }
-        if newestClickAt() > doneAt + 0.5 { return .seen }
-        guard onScreenLocalId() == meta.localId, let since = look.claudeFrontSince,
+        if newestClickAt(in: ps) > doneAt + 0.5 { return .seen }
+        guard onScreenLocalId(in: ps) == meta.localId, let since = claudeFront,
               max(since, doneAt) + Self.lookDuration <= now else { return .notYet }
         return .seen
     }
 
     /// When you last clicked into any chat (the newest `lastFocusedAt` on disk).
-    private func newestClickAt() -> Double {
-        desktopMeta.mostRecentlyFocusedId.flatMap { desktopMeta.meta(for: $0) }?.lastFocusedAt ?? 0
+    private func newestClickAt(in ps: ProfileState) -> Double {
+        ps.desktopMeta.mostRecentlyFocusedId.flatMap { ps.desktopMeta.meta(for: $0) }?.lastFocusedAt ?? 0
     }
 
-    private func isCoworkSeen(title: String, doneAt: Double, look: SeenDetector.Snapshot, now: Double) -> Bool {
-        guard look.canSee, doneAt > 0, let since = look.claudeFrontSince else { return false }
+    private func isCoworkSeen(title: String, profile: ClaudeProfile, doneAt: Double, look: SeenDetector.Snapshot, now: Double) -> Bool {
+        guard look.canSee, doneAt > 0, let since = claudeFrontSince(for: profile, look: look) else { return false }
         if look.axTrusted {
             // With Accessibility we can read the focused window's title and match this chat.
             guard let windowTitle = look.claudeWindowTitle,

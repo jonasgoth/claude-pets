@@ -10,7 +10,7 @@ import AppKit
 ///     and raise its window — picking the right tab by tty where the app can be scripted.
 enum SessionOpener {
     enum Target: Equatable {
-        case desktop(URL)                      // a Desktop chat's claude:// link
+        case desktop(URL, app: String?)        // a Desktop chat's claude:// link, and which Claude copy owns it
         case terminal(tty: String, pid: Int)   // a CLI session: its tty + the claude process
     }
 
@@ -27,10 +27,12 @@ enum SessionOpener {
 
     /// `path` is "continue" for a Code chat, "needs-input" for a Cowork task (Desktop routes that
     /// one through its own session list, which is where Cowork tasks live).
-    static func desktopTarget(localId: String?, path: String = "continue") -> Target? {
+    /// `app` is the Claude copy the chat lives in. Every profile registers `claude://`, so
+    /// without it macOS could hand a "Claude Jgo" chat to the normal app, which doesn't have it.
+    static func desktopTarget(localId: String?, path: String = "continue", app: String? = nil) -> Target? {
         guard let localId, localId.hasPrefix("local_"),
               let url = URL(string: "claude://code/\(path)?session=\(localId)") else { return nil }
-        return .desktop(url)
+        return .desktop(url, app: app)
     }
 
     /// Returns true when we really did put that chat in front of you — the caller uses that to
@@ -38,8 +40,14 @@ enum SessionOpener {
     @discardableResult
     static func open(_ target: Target) -> Bool {
         switch target {
-        case .desktop(let url):
-            return NSWorkspace.shared.open(url)
+        case .desktop(let url, let app):
+            guard let app else { return NSWorkspace.shared.open(url) }
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            NSWorkspace.shared.open([url], withApplicationAt: URL(fileURLWithPath: app), configuration: config) { _, error in
+                if error != nil { NSWorkspace.shared.open(url) }
+            }
+            return true
         case .terminal(let tty, let pid):
             return openTerminal(tty: tty, pid: pid)
         }

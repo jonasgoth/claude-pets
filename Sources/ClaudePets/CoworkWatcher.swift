@@ -19,10 +19,9 @@ final class CoworkWatcher {
 
     static let liveWindow: TimeInterval = 300
 
-    static var baseDir: String {
-        (NSHomeDirectory() as NSString)
-            .appendingPathComponent("Library/Application Support/Claude/local-agent-mode-sessions")
-    }
+    let baseDir: String
+
+    init(baseDir: String) { self.baseDir = baseDir }
 
     private var files: [String] = []
     private var lastListing: Double = 0
@@ -30,7 +29,7 @@ final class CoworkWatcher {
 
     func scan(now: Double) -> [Session] {
         lastListing = now
-        files = Self.listMetadataFiles()
+        files = Self.listMetadataFiles(in: baseDir)
         var out: [Session] = []
         for meta in files {
             // Stat the audit log first; skip everything that isn't fresh.
@@ -64,7 +63,7 @@ final class CoworkWatcher {
         return entry
     }
 
-    private static func listMetadataFiles() -> [String] {
+    private static func listMetadataFiles(in baseDir: String) -> [String] {
         let fm = FileManager.default
         guard let accounts = try? fm.contentsOfDirectory(atPath: baseDir) else { return [] }
         var out: [String] = []

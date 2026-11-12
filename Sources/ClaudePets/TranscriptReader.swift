@@ -47,11 +47,16 @@ final class TranscriptReader {
         }
     }
 
-    init(sessionId: String) { self.sessionId = sessionId }
+    private let projectsDir: String
+
+    init(sessionId: String, projectsDir: String) {
+        self.sessionId = sessionId
+        self.projectsDir = projectsDir
+    }
 
     private func locate() -> String? {
         if let path, FileManager.default.fileExists(atPath: path) { return path }
-        let projects = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/projects")
+        let projects = projectsDir
         guard let slugs = try? FileManager.default.contentsOfDirectory(atPath: projects) else { return nil }
         for slug in slugs {
             let candidate = "\(projects)/\(slug)/\(sessionId).jsonl"

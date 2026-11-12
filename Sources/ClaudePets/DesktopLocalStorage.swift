@@ -24,10 +24,9 @@ final class DesktopLocalStorage {
         var writtenAt: Double = 0                // mtime of the newest storage file
     }
 
-    static var baseDir: String {
-        (NSHomeDirectory() as NSString)
-            .appendingPathComponent("Library/Application Support/Claude/Local Storage/leveldb")
-    }
+    let baseDir: String
+
+    init(baseDir: String) { self.baseDir = baseDir }
 
     private(set) var state: State?
 
@@ -41,11 +40,11 @@ final class DesktopLocalStorage {
     /// Re-read whatever changed and rebuild `state`. Cheap when nothing changed.
     func refresh() {
         let fm = FileManager.default
-        guard let names = try? fm.contentsOfDirectory(atPath: Self.baseDir) else { state = nil; return }
+        guard let names = try? fm.contentsOfDirectory(atPath: baseDir) else { state = nil; return }
         var newest: Double = 0
         var seen: Set<String> = []
         for name in names where name.hasSuffix(".ldb") || name.hasSuffix(".log") {
-            let path = "\(Self.baseDir)/\(name)"
+            let path = "\(baseDir)/\(name)"
             var st = stat()
             guard stat(path, &st) == 0 else { continue }
             let size = UInt64(st.st_size)

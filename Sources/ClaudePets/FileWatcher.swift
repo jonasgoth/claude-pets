@@ -43,6 +43,14 @@ final class FileWatcher {
         stream = s
     }
 
+    func stop() {
+        guard let s = stream else { return }
+        FSEventStreamStop(s)
+        FSEventStreamInvalidate(s)
+        FSEventStreamRelease(s)
+        stream = nil
+    }
+
     private func note(_ paths: [String]) {
         lock.lock(); defer { lock.unlock() }
         for p in paths { for r in roots where p.hasPrefix(r) { dirty.insert(r) } }

@@ -16,10 +16,9 @@ final class DesktopMetaIndex {
         let isArchived: Bool
     }
 
-    static var baseDir: String {
-        (NSHomeDirectory() as NSString)
-            .appendingPathComponent("Library/Application Support/Claude/claude-code-sessions")
-    }
+    let baseDir: String
+
+    init(baseDir: String) { self.baseDir = baseDir }
 
     private var cache: [String: (mtime: Double, meta: Meta?)] = [:]   // by file path
     private var byCliId: [String: Meta] = [:]
@@ -30,7 +29,7 @@ final class DesktopMetaIndex {
     /// this when FSEvents reported a change (or as a slow fallback), so it is rarely called.
     func refresh(now: Double) {
         lastListing = now
-        files = Self.listMetadataFiles()
+        files = Self.listMetadataFiles(in: baseDir)
         var changed = false
         for path in files {
             guard let mtime = FileStat.mtime(path) else { continue }
@@ -69,7 +68,7 @@ final class DesktopMetaIndex {
                     isArchived: obj["isArchived"] as? Bool ?? false)
     }
 
-    private static func listMetadataFiles() -> [String] {
+    private static func listMetadataFiles(in baseDir: String) -> [String] {
         let fm = FileManager.default
         guard let accounts = try? fm.contentsOfDirectory(atPath: baseDir) else { return [] }
         var out: [String] = []

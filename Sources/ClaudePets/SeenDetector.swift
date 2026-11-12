@@ -13,6 +13,7 @@ final class SeenDetector {
     struct Snapshot {
         var frontBundleId: String?
         var claudeFrontSince: Double?      // epoch when Claude became the front app; nil if it isn't
+        var claudeFrontAppPath: String?    // which copy of Claude is in front (profiles share one bundle id)
         var terminalFrontSince: Double?    // same for Terminal / iTerm2
         var terminalBundleId: String?
         var terminalSelectedTTY: String?   // e.g. "/dev/ttys004", when a terminal is front
@@ -76,16 +77,22 @@ final class SeenDetector {
 
     private func sample() {
         let now = Date().timeIntervalSince1970
-        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let frontApp = NSWorkspace.shared.frontmostApplication
+        let front = frontApp?.bundleIdentifier
         var s = snapshot()
         s.frontBundleId = front
         s.axTrusted = AXIsProcessTrusted()
 
-        if front == Self.claudeBundleId {
-            if s.claudeFrontSince == nil { s.claudeFrontSince = now }
-            s.claudeWindowTitle = s.axTrusted ? Self.focusedWindowTitle(bundleId: Self.claudeBundleId) : nil
+        if front == Self.claudeBundleId, let frontApp {
+            // Every Claude profile is a copy of the same app, so the bundle id alone can't tell
+            // "Claude" from "Claude Jgo". Switching between them starts the clock over.
+            let path = frontApp.bundleURL?.resolvingSymlinksInPath().path
+            if s.claudeFrontSince == nil || s.claudeFrontAppPath != path { s.claudeFrontSince = now }
+            s.claudeFrontAppPath = path
+            s.claudeWindowTitle = s.axTrusted ? Self.focusedWindowTitle(pid: frontApp.processIdentifier) : nil
         } else {
             s.claudeFrontSince = nil
+            s.claudeFrontAppPath = nil
             s.claudeWindowTitle = nil
         }
 
@@ -106,9 +113,8 @@ final class SeenDetector {
     }
 
     /// Title of the focused window of the given app, via Accessibility. Nil without permission.
-    private static func focusedWindowTitle(bundleId: String) -> String? {
-        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first else { return nil }
-        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+    private static func focusedWindowTitle(pid: pid_t) -> String? {
+        let axApp = AXUIElementCreateApplication(pid)
         var windowRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &windowRef) == .success,
               let windowRef else { return nil }
