@@ -6,8 +6,11 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # Set by CI from the git tag (tools/make-dmg.sh and .github/workflows/release.yml);
-# otherwise this is the version a local build carries.
-VERSION="${CLAUDE_PETS_VERSION:-0.6.0}"
+# Otherwise a local build carries the newest release tag's version, so the app's own updater
+# never offers to "update" it back to that release and wipe out the local changes.
+LATEST_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+VERSION="${CLAUDE_PETS_VERSION:-${LATEST_TAG#v}}"
+VERSION="${VERSION:-0.7.0}"
 APP="build/Claude Pets.app"
 
 echo "Compiling Claude Pets…"
