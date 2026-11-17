@@ -234,10 +234,12 @@ final class SessionStore {
             let activity = reader.lastEventTime > 0 ? reader.lastEventTime
                 : (session.startedAt > 0 ? session.startedAt : now)
             let idleFor = status.isBusy ? 0 : now - activity
-            if !status.isBusy, !status.needsYou, idleFor > Self.dropFromMenu {
+            // A crab still waiting for you to look (or to answer) never leaves on a timer.
+            let staysUp = status.isBusy || status.needsYou || status.isUnseenFinish
+            if !staysUp, idleFor > Self.dropFromMenu {
                 continue                                             // stale chat: off the menu entirely
             }
-            if !status.isBusy, !status.needsYou, idleFor > Self.hideAfterIdle {
+            if !staysUp, idleFor > Self.hideAfterIdle {
                 newRows.append(Row(id: session.sessionId, title: title, status: .dormant, lastActivity: activity, open: open))   // listed, but the pet has left
                 if Self.debug { lastLogged[session.sessionId] = status }   // keeps the seen-check log quiet
                 continue
@@ -272,10 +274,11 @@ final class SessionStore {
                 openedAt[session.sessionId] = nil
             }
             status = restOrSleep(id: session.sessionId, status: status, now: now)
-            if !status.isBusy, !status.needsYou, now - session.lastActivity > Self.dropFromMenu {
+            let staysUp = status.isBusy || status.needsYou || status.isUnseenFinish
+            if !staysUp, now - session.lastActivity > Self.dropFromMenu {
                 continue                                             // stale chat: off the menu entirely
             }
-            if !status.isBusy, !status.needsYou, now - session.lastActivity > Self.hideAfterIdle {
+            if !staysUp, now - session.lastActivity > Self.hideAfterIdle {
                 newRows.append(Row(id: session.sessionId, title: session.title, status: .dormant, lastActivity: session.lastActivity,
                                    open: SessionOpener.desktopTarget(localId: session.localId, path: "needs-input", app: ps.profile.appPath)))
                 continue
@@ -419,7 +422,8 @@ final class SessionStore {
             // and shell jobs run, and wakes for each one's task-notification. Without this the crab
             // flips done / working / done every time one reports in, trotting across the Dock each way.
             if helpersRunning { return .working }
-            if age > Self.dormantAfter { return .dormant }
+            // No dormant here: a finish you have not looked at keeps its checkmark however long it
+            // waits. Only the seen rule (then restOrSleep) may calm it down.
             return .doneUnseen
         }
 
