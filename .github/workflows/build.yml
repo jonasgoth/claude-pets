@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-latest   # GitHub retires fixed macOS images (macos-14 is gone); latest stays current
     steps:
       - uses: actions/checkout@v4
       - name: Build Claude Pets.app
