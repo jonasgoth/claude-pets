@@ -60,13 +60,18 @@ final class PlaypenController {
             self.panel.setFrame(Self.stripFrame(tall: tall), display: true)
         }
 
-        // Global = events going to other apps (cursor over empty strip or elsewhere).
-        // Local = events going to us (cursor over a crab, or mid-drag). Need both.
-        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseUp]
-        if let m = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] _ in
+        // Where the cursor is gets checked once per frame the scene draws anyway (`pollPointer`),
+        // not on every mouse move: a global mouse-moved monitor woke the app for every twitch of
+        // the mouse anywhere on screen, up to 120 times a second, crabs nearby or not.
+        // Global = events going to other apps; local = events going to us (cursor on a crab, or
+        // mid-drag). The button events stay instant both ways.
+        scene.onFrame = { [weak self] in self?.pollPointer() }
+        let global: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp]
+        let local: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseUp]
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: global, handler: { [weak self] _ in
             self?.updateMousePassthrough()
         }) { monitors.append(m) }
-        if let m = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] event in
+        if let m = NSEvent.addLocalMonitorForEvents(matching: local, handler: { [weak self] event in
             self?.updateMousePassthrough()
             return event
         }) { monitors.append(m) }
@@ -75,6 +80,18 @@ final class PlaypenController {
                                                object: nil, queue: .main) { [weak self] _ in
             self?.reposition()
         }
+        // Nobody can see the strip (display asleep, screen locked, a full-screen app on top):
+        // stop drawing it altogether instead of rendering 30 frames a second into the void.
+        NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification,
+                                               object: panel, queue: .main) { [weak self] _ in
+            self?.updatePaused()
+        }
+    }
+
+    /// The scene runs only while the panel is actually on screen and visible.
+    private func updatePaused() {
+        let visible = panel.isVisible && panel.occlusionState.contains(.visible)
+        if skView.isPaused == visible { skView.isPaused = !visible }
     }
 
     /// Full width along the very bottom of the main screen — the same row as the Dock. The Dock
@@ -122,17 +139,30 @@ final class PlaypenController {
             dockTimer = t
         }
         panel.orderFrontRegardless()
+        updatePaused()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.logCrabRect() }
     }
 
     func hide() {
         scene.setHovered(nil, at: nil)
         panel.orderOut(nil)
+        updatePaused()
     }
 
     func reposition() {
         panel.setFrame(Self.stripFrame(tall: isTall), display: true)
         updateDockZone()
+    }
+
+    private var lastPointer = CGPoint(x: -1, y: -1)
+
+    /// Once a frame: if the cursor moved since the last frame, update pass-through and hover.
+    /// Reading the cursor position is a cheap local read, no event delivery involved.
+    private func pollPointer() {
+        let p = NSEvent.mouseLocation
+        guard p != lastPointer else { return }
+        lastPointer = p
+        updateMousePassthrough()
     }
 
     func updateMousePassthrough() {

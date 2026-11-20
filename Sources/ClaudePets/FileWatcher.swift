@@ -10,6 +10,14 @@ enum FileStat {
         guard stat(path, &st) == 0 else { return nil }
         return Double(st.st_mtimespec.tv_sec) + Double(st.st_mtimespec.tv_nsec) / 1e9
     }
+
+    /// Modification time and size in one stat(2), so a file can be checked for news without
+    /// opening it.
+    static func info(_ path: String) -> (mtime: Double, size: UInt64)? {
+        var st = stat()
+        guard stat(path, &st) == 0 else { return nil }
+        return (Double(st.st_mtimespec.tv_sec) + Double(st.st_mtimespec.tv_nsec) / 1e9, UInt64(st.st_size))
+    }
 }
 
 final class FileWatcher {

@@ -51,10 +51,26 @@ final class DesktopMetaIndex {
         byCliId.values.filter { !$0.isArchived }.max(by: { $0.lastFocusedAt < $1.lastFocusedAt })?.cliSessionId
     }
 
+    /// The only fields we use. Each file also carries the chat's whole MCP setup (about 1 MB),
+    /// and there is one file per chat ever opened: well over a thousand, close to a gigabyte. Fully
+    /// parsing them all at launch, and each again whenever Desktop touched it, was the app's worst
+    /// cost by far. These six sit in the first couple of KB, so only that much is read and scanned.
+    private static let wanted: Set<String> = ["cliSessionId", "sessionId", "title",
+                                              "lastFocusedAt", "lastActivityAt", "isArchived"]
+    private static let headBytes = 16 * 1024
+
     private static func parse(_ path: String) -> Meta? {
-        guard let data = FileManager.default.contents(atPath: path),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let cli = obj["cliSessionId"] as? String else { return nil }
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: headBytes) else { return nil }
+        var obj = TopLevelJSON.fields(in: head, wanted: wanted)
+        // Not all six in the head (a field missing from this file, or an unusual key order):
+        // scan the whole file instead. Still no full parse.
+        if obj == nil, head.count == headBytes,
+           let rest = try? handle.readToEnd() {
+            obj = TopLevelJSON.fields(in: head + rest, wanted: wanted, complete: true)
+        }
+        guard let obj, let cli = obj["cliSessionId"] as? String else { return nil }
         let localId = (obj["sessionId"] as? String) ?? (path as NSString).lastPathComponent.replacingOccurrences(of: ".json", with: "")
         func seconds(_ key: String) -> Double {
             let v = (obj[key] as? Double) ?? (obj[key] as? Int).map(Double.init) ?? 0
@@ -84,5 +100,84 @@ final class DesktopMetaIndex {
             }
         }
         return out
+    }
+}
+
+/// Pulls a few top-level fields out of a JSON object without parsing the rest of it. Values it
+/// does not want are stepped over byte by byte (strings and nesting only), never decoded; the
+/// wanted ones are handed to JSONSerialization on their own.
+enum TopLevelJSON {
+    /// The wanted fields found. Nil when the text ends before every wanted field turned up,
+    /// unless `complete` says this is the whole document: then whatever was found is the answer.
+    static func fields(in data: Data, wanted: Set<String>, complete: Bool = false) -> [String: Any]? {
+        data.withUnsafeBytes { raw -> [String: Any]? in
+            let b = raw.bindMemory(to: UInt8.self)
+            let n = b.count
+            var i = 0
+            var out: [String: Any] = [:]
+
+            func skipSpace() { while i < n, b[i] == 0x20 || b[i] == 0x0A || b[i] == 0x0D || b[i] == 0x09 { i += 1 } }
+            /// i sits on an opening quote; leaves i just past the closing one. False if cut off.
+            func skipString() -> Bool {
+                i += 1
+                while i < n {
+                    switch b[i] {
+                    case 0x5C: i += 2                   // backslash: skip the escaped byte
+                    case 0x22: i += 1; return true      // closing quote
+                    default: i += 1
+                    }
+                }
+                return false
+            }
+            /// Steps over one value of any kind. False if the text ends inside it.
+            func skipValue() -> Bool {
+                guard i < n else { return false }
+                switch b[i] {
+                case 0x22: return skipString()
+                case 0x7B, 0x5B:                         // { or [
+                    var depth = 0
+                    while i < n {
+                        switch b[i] {
+                        case 0x22: if !skipString() { return false }; continue
+                        case 0x7B, 0x5B: depth += 1
+                        case 0x7D, 0x5D: depth -= 1; if depth == 0 { i += 1; return true }
+                        default: break
+                        }
+                        i += 1
+                    }
+                    return false
+                default:                                 // number, true, false, null
+                    while i < n, b[i] != 0x2C, b[i] != 0x7D, b[i] != 0x5D,
+                          b[i] != 0x20, b[i] != 0x0A, b[i] != 0x0D, b[i] != 0x09 { i += 1 }
+                    return i < n
+                }
+            }
+
+            skipSpace()
+            guard i < n, b[i] == 0x7B else { return nil }
+            i += 1
+            while true {
+                skipSpace()
+                guard i < n else { return complete ? out : nil }
+                if b[i] == 0x7D { return out }           // end of object: everything there was
+                guard b[i] == 0x22 else { return nil }
+                let keyStart = i + 1
+                guard skipString() else { return complete ? out : nil }
+                let key = String(decoding: UnsafeBufferPointer(rebasing: b[keyStart..<(i - 1)]), as: UTF8.self)
+                skipSpace()
+                guard i < n, b[i] == 0x3A else { return complete ? out : nil }
+                i += 1
+                skipSpace()
+                let valueStart = i
+                guard skipValue() else { return complete ? out : nil }
+                if wanted.contains(key) {
+                    let slice = Data(UnsafeBufferPointer(rebasing: b[valueStart..<i]))
+                    if let v = try? JSONSerialization.jsonObject(with: slice, options: .fragmentsAllowed) { out[key] = v }
+                    if out.count == wanted.count { return out }
+                }
+                skipSpace()
+                if i < n, b[i] == 0x2C { i += 1 }
+            }
+        }
     }
 }

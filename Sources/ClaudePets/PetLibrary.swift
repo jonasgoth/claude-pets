@@ -5,10 +5,17 @@ import ImageIO
 /// The Clawd pets: pre-baked frame sheets in Resources/pets (see tools/render-pets.py), one per
 /// crab state. Frames are sliced from the sheet once and shared by every crab. Each crab's project
 /// colour is applied on the GPU by `hueShader`, so there is one texture per state, not one per colour.
+///
+/// The sheets are cropped to the part of the cell the pet uses (tools/pack-pets.py), and only the
+/// sheets a crab on screen is playing stay loaded (`purge`), so the GPU holds a few MB, not ~1 GB.
 enum PetLibrary {
     struct Sheet {
         let file: String
         let frames: Int
+        /// The part of the full cell this sheet keeps, in cell pixels with a top-left origin
+        /// (the whole cell for a sheet that was never packed), and how many frames sit per row.
+        let box: CGRect
+        let cols: Int
         /// Points this pet hovers above the floor, and how far it drifts to each side.
         /// Zero for every pet that stands on the ground (see HOVER in tools/render-pets.py).
         let lift: CGFloat
@@ -19,7 +26,6 @@ enum PetLibrary {
 
     private static var cell: CGFloat = 240
     private static var cols = 8
-    private static var rows = 4
     private(set) static var fps: Double = 8
     private static var sheets: [String: Sheet] = [:]
     /// The "working:<pet>" keys to draw from — one working animation per session.
@@ -36,7 +42,7 @@ enum PetLibrary {
     /// Beyond this many remembered sessions the picks are trimmed back to the live crabs, so an
     /// old stack of dead sessions can never skew the draw.
     private static let workingPickMemoryLimit = 200
-    private static var frameCache: [String: [SKTexture]] = [:]
+    private static var frameCache: [String: Frames] = [:]
     /// One decoded sheet per file, so the plain and shadowless slicings share a single decode.
     private static var sheetTextures: [String: SKTexture] = [:]
     private static var loaded = false
@@ -68,11 +74,14 @@ enum PetLibrary {
         workingKeys = (obj["workingVariants"] as? [String]) ?? []
         cell = CGFloat((obj["cell"] as? Double) ?? 240)
         cols = (obj["cols"] as? Int) ?? 8
-        rows = (obj["rows"] as? Int) ?? 4
         fps = (obj["fps"] as? Double) ?? 8
         for (state, info) in states {
             guard let file = info["file"] as? String, let frames = info["frames"] as? Int else { continue }
-            sheets[state] = Sheet(file: file, frames: frames,
+            let b = (info["box"] as? [Double]).flatMap { $0.count == 4 ? $0 : nil }
+            let box = b.map { CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) }
+                ?? CGRect(x: 0, y: 0, width: cell, height: cell)
+            sheets[state] = Sheet(file: file, frames: frames, box: box,
+                                  cols: (info["cols"] as? Int) ?? cols,
                                   lift: CGFloat((info["lift"] as? Double) ?? 0),
                                   sway: CGFloat((info["sway"] as? Double) ?? 0))
         }
@@ -139,30 +148,74 @@ enum PetLibrary {
         return (sheet.lift, sheet.sway)
     }
 
+    /// One pose's frames, plus where they sit inside the full pet cell.
+    struct Frames {
+        let textures: [SKTexture]
+        /// The part of the full cell these frames show, as fractions of the cell with a bottom-left
+        /// origin. The sprite is sized and anchored from it, so a cropped frame lands exactly where
+        /// it sat in the full cell.
+        let cellRect: CGRect
+        var isEmpty: Bool { textures.isEmpty }
+        static let none = Frames(textures: [], cellRect: CGRect(x: 0, y: 0, width: 1, height: 1))
+    }
+
     /// Animation frames for a state key ("working", "moving", …), shared by every crab.
     /// `withoutShadow` slices each cell to stop just above the baked-in ground shadow, for a crab
     /// held in the air. Empty if the state is unknown.
-    static func frames(_ state: String, withoutShadow: Bool = false) -> [SKTexture] {
+    static func frames(_ state: String, withoutShadow: Bool = false) -> Frames {
         load()
         let cacheKey = withoutShadow ? state + "#noshadow" : state
         if let cached = frameCache[cacheKey] { return cached }
-        guard let sheet = sheets[state], let texture = sheetTexture(for: sheet) else { return [] }
+        guard let sheet = sheets[state], let texture = sheetTexture(for: sheet) else { return .none }
 
-        let crop = withoutShadow ? shadowBand : 0
-        let w = 1.0 / CGFloat(cols), h = 1.0 / CGFloat(rows)
+        // The kept box, flipped to SpriteKit's bottom-left origin, in cell pixels.
+        let box = CGRect(x: sheet.box.minX, y: cell - sheet.box.maxY,
+                         width: sheet.box.width, height: sheet.box.height)
+        // Off the ground the pose stops just above the shadow band; the box may already start there.
+        let cropBottom = withoutShadow ? max(box.minY, shadowBand * cell) : box.minY
+        let kept = CGRect(x: box.minX, y: cropBottom, width: box.width, height: box.maxY - cropBottom)
+        guard kept.height > 0 else { return .none }
+
+        let sheetCols = max(sheet.cols, 1)
+        let sheetRows = (sheet.frames + sheetCols - 1) / sheetCols
+        let w = 1.0 / CGFloat(sheetCols), h = 1.0 / CGFloat(sheetRows)
+        let cropFraction = (cropBottom - box.minY) / box.height
         var out: [SKTexture] = []
+        out.reserveCapacity(sheet.frames)
         for i in 0..<sheet.frames {
-            let col = i % cols, row = i / cols
+            let col = i % sheetCols, row = i / sheetCols
             // SpriteKit texture rects have their origin at the bottom-left, so cropping the
-            // shadow off the foot of the cell means starting higher and keeping less.
-            let rect = CGRect(x: CGFloat(col) * w, y: 1 - CGFloat(row + 1) * h + crop * h,
-                              width: w, height: h * (1 - crop))
+            // shadow off the foot of the frame means starting higher and keeping less.
+            let rect = CGRect(x: CGFloat(col) * w, y: 1 - CGFloat(row + 1) * h + cropFraction * h,
+                              width: w, height: h * (1 - cropFraction))
             let t = SKTexture(rect: rect, in: texture)
             t.filteringMode = .linear
             out.append(t)
         }
-        frameCache[cacheKey] = out
-        return out
+        let frames = Frames(textures: out, cellRect: CGRect(x: kept.minX / cell, y: kept.minY / cell,
+                                                            width: kept.width / cell, height: kept.height / cell))
+        frameCache[cacheKey] = frames
+        return frames
+    }
+
+    /// Poses cheap enough (and common enough) to keep loaded even with no crab playing them:
+    /// every crab walks, and every crab leaves.
+    private static let alwaysKept: Set<String> = ["moving", "leaving"]
+
+    /// Let go of every sheet no crab is playing. A crab still playing one keeps its textures alive
+    /// through its running animation, so this only frees what nobody can see; a pose asked for
+    /// again later is simply decoded again (a few ms for a packed sheet).
+    static func purge(keeping inUse: Set<String>) {
+        let keep = inUse.union(alwaysKept)
+        let before = sheetTextures.count
+        frameCache = frameCache.filter { key, _ in
+            keep.contains(key.hasSuffix("#noshadow") ? String(key.dropLast("#noshadow".count)) : key)
+        }
+        let files = Set(keep.compactMap { sheets[$0]?.file })
+        sheetTextures = sheetTextures.filter { files.contains($0.key) }
+        if debug, sheetTextures.count != before {
+            FileHandle.standardError.write(Data("[pets] purge: \(before) -> \(sheetTextures.count) sheets loaded\n".utf8))
+        }
     }
 
     private static func sheetTexture(for sheet: Sheet) -> SKTexture? {

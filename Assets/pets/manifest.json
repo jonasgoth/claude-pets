@@ -33,167 +33,391 @@
     "moving": {
       "file": "moving.png",
       "pet": "crab-walking",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        79,
+        164,
+        82,
+        56
+      ],
+      "cols": 9
     },
     "needsPermission": {
       "file": "needsPermission.png",
       "pet": "praying",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        68,
+        143,
+        104,
+        78
+      ],
+      "cols": 9
     },
     "needsQuestion": {
       "file": "needsQuestion.png",
       "pet": "asking",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        79,
+        120,
+        86,
+        100
+      ],
+      "cols": 12
     },
     "doneUnseen": {
       "file": "doneUnseen.png",
       "pet": "200",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        79,
+        132,
+        120,
+        88
+      ],
+      "cols": 9
     },
     "doneSeen": {
       "file": "doneSeen.png",
       "pet": "idle-living",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        78,
+        164,
+        90,
+        56
+      ],
+      "cols": 9
     },
     "dormant": {
       "file": "dormant.png",
       "pet": "sleeping",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        50,
+        96,
+        110,
+        121
+      ],
+      "cols": 11
     },
     "error": {
       "file": "error.png",
       "pet": "dizzy",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        58,
+        121,
+        124,
+        99
+      ],
+      "cols": 10
     },
     "leaving": {
       "file": "leaving.png",
       "pet": "going-away",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        4,
+        132,
+        210,
+        91
+      ],
+      "cols": 7
     },
     "working:working-thinking": {
       "file": "working-working-thinking.png",
       "pet": "working-thinking",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        70,
+        95,
+        103,
+        126
+      ],
+      "cols": 12
     },
     "working:working-juggling": {
       "file": "working-working-juggling.png",
       "pet": "working-juggling",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        73,
+        127,
+        94,
+        93
+      ],
+      "cols": 11
     },
     "working:working-debugger": {
       "file": "working-working-debugger.png",
       "pet": "working-debugger",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        73,
+        160,
+        106,
+        61
+      ],
+      "cols": 8
     },
     "working:working-firefighting": {
       "file": "working-working-firefighting.png",
       "pet": "working-firefighting",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        78,
+        147,
+        121,
+        73
+      ],
+      "cols": 9
     },
     "working:magic": {
       "file": "working-magic.png",
       "pet": "magic",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        47,
+        121,
+        116,
+        99
+      ],
+      "cols": 10
     },
     "working:working-conducting": {
       "file": "working-working-conducting.png",
       "pet": "working-conducting",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        69,
+        116,
+        103,
+        107
+      ],
+      "cols": 11
     },
     "working:working-typing": {
       "file": "working-working-typing.png",
       "pet": "working-typing",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        68,
+        108,
+        114,
+        112
+      ],
+      "cols": 11
     },
     "working:hopeful": {
       "file": "working-hopeful.png",
       "pet": "hopeful",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        79,
+        132,
+        82,
+        88
+      ],
+      "cols": 11
     },
     "working:evil": {
       "file": "working-evil.png",
       "pet": "evil",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        78,
+        132,
+        83,
+        94
+      ],
+      "cols": 12
     },
     "working:hallucinating": {
       "file": "working-hallucinating.png",
       "pet": "hallucinating",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        47,
+        84,
+        136,
+        136
+      ],
+      "cols": 11
     },
     "working:astronaut": {
       "file": "working-astronaut.png",
       "pet": "astronaut",
       "frames": 120,
-      "lift": 6
+      "lift": 6,
+      "box": [
+        63,
+        89,
+        109,
+        131
+      ],
+      "cols": 12
     },
     "working:detective": {
       "file": "working-detective.png",
       "pet": "detective",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        79,
+        141,
+        113,
+        79
+      ],
+      "cols": 9
     },
     "working:coding": {
       "file": "working-coding.png",
       "pet": "coding",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        68,
+        89,
+        120,
+        131
+      ],
+      "cols": 11
     },
     "working:crafting": {
       "file": "working-crafting.png",
       "pet": "crafting",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        52,
+        116,
+        136,
+        104
+      ],
+      "cols": 10
     },
     "working:flying": {
       "file": "working-flying.png",
       "pet": "flying",
       "frames": 120,
       "lift": 6,
-      "sway": 4
+      "sway": 4,
+      "box": [
+        48,
+        129,
+        115,
+        91
+      ],
+      "cols": 10
     },
     "working:gardening": {
       "file": "working-gardening.png",
       "pet": "gardening",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        77,
+        163,
+        116,
+        57
+      ],
+      "cols": 8
     },
     "working:loading": {
       "file": "working-loading.png",
       "pet": "loading",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        77,
+        132,
+        86,
+        88
+      ],
+      "cols": 11
     },
     "working:idea": {
       "file": "working-idea.png",
       "pet": "idea",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        79,
+        91,
+        82,
+        129
+      ],
+      "cols": 14
     },
     "working:money": {
       "file": "working-money.png",
       "pet": "money",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        73,
+        79,
+        94,
+        141
+      ],
+      "cols": 13
     },
     "working:rocket": {
       "file": "working-rocket.png",
       "pet": "rocket",
       "frames": 120,
       "lift": 6,
-      "sway": 4
+      "sway": 4,
+      "box": [
+        77,
+        100,
+        86,
+        127
+      ],
+      "cols": 13
     },
     "working:skateboard": {
       "file": "working-skateboard.png",
       "pet": "skateboard",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        78,
+        158,
+        105,
+        73
+      ],
+      "cols": 9
     },
     "working:security": {
       "file": "working-security.png",
       "pet": "security",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        38,
+        153,
+        169,
+        67
+      ],
+      "cols": 7
     },
     "working:star": {
       "file": "working-star.png",
       "pet": "star",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        68,
+        105,
+        104,
+        115
+      ],
+      "cols": 12
     },
     "working:time-travel": {
       "file": "working-time-travel.png",
       "pet": "time-travel",
-      "frames": 120
+      "frames": 120,
+      "box": [
+        43,
+        110,
+        154,
+        130
+      ],
+      "cols": 10
     }
   }
 }

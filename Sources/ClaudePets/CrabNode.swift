@@ -76,10 +76,6 @@ final class CrabNode: SKNode {
     /// Measured from the sheets: the pet's shadow ends 21 of 240 px above the cell's bottom edge,
     /// so anchoring there puts the node origin right under the shadow.
     static let petAnchorY: CGFloat = 21.0 / 240.0
-    /// The same origin, but measured inside a frame whose shadow band has been cropped away — so a
-    /// carried crab loses its shadow without shifting under the cursor. It lands just below the
-    /// cropped frame, hence negative.
-    static let petCropAnchorY: CGFloat = (petAnchorY - PetLibrary.shadowBand) / (1 - PetLibrary.shadowBand)
     /// The standing body, relative to that origin: feet 3 pt up, 40 wide, 26 tall.
     static let petBody = CGSize(width: 40 * petScale, height: 26 * petScale)
     static let petBodyBottom: CGFloat = 3 * petScale
@@ -98,9 +94,8 @@ final class CrabNode: SKNode {
     let isBaby: Bool
     private let usesPet: Bool
     private let sprite: SKSpriteNode
-    /// Top line first. The second label is only used when the title needs two lines.
-    private let nameLabels = [SKLabelNode(), SKLabelNode()]
-    private let nameBackground = SKShapeNode()
+    /// The name tag, pill and text drawn into one image (see `updateLabel`).
+    private let tagSprite = SKSpriteNode()
     private let tagNode = SKNode()
     private var tagBaseY: CGFloat = 0
     /// The speech bubble shown while the cursor rests on this crab.
@@ -113,26 +108,28 @@ final class CrabNode: SKNode {
     /// The pet sheet on screen right now, so `applyFacing` knows which pose it is mirroring.
     private var currentPetKey: String?
 
-    /// True while the crab is held in the air by the cursor.
-    private var carried = false { didSet { if carried != oldValue { applyShadowCrop() } } }
+    /// True while the crab is held in the air by the cursor. Every change is followed by a
+    /// `playPet`, which picks the shadowless frames and re-fits the sprite to them.
+    private var carried = false
 
     /// How far the pose on screen hovers above the floor, and how far it drifts to each side.
     /// Zero for every pet that stands on the ground; the flying ones come out of the manifest.
     private var petLift: CGFloat = 0
     private var petSway: CGFloat = 0
 
-    /// A pet off the floor — carried by the cursor, or flying under its own steam — plays frames
-    /// cropped just above the ground shadow baked into the art, so no dark bar floats underneath.
-    private var shadowCropped = false
-    private var wantsShadowCrop: Bool { usesPet && (carried || petLift > 0) }
-
-    private func applyShadowCrop() {
-        guard shadowCropped != wantsShadowCrop else { return }
-        shadowCropped = wantsShadowCrop
-        sprite.size = CGSize(width: Self.petSize,
-                             height: Self.petSize * (shadowCropped ? 1 - PetLibrary.shadowBand : 1))
-        sprite.anchorPoint = CGPoint(x: 0.5, y: shadowCropped ? Self.petCropAnchorY : Self.petAnchorY)
+    /// Sizes and anchors the sprite to the part of the pet cell these frames show. The sheets are
+    /// cropped to what the pet uses, and a pet off the floor (carried, or flying under its own
+    /// steam) also drops the ground shadow baked into the art, so no dark bar floats underneath.
+    /// Either way the anchor is the same point of the full cell (between the feet), so the pet
+    /// sits exactly where the full cell put it.
+    private func fit(to frames: PetLibrary.Frames) {
+        let r = frames.cellRect
+        sprite.size = CGSize(width: Self.petSize * r.width, height: Self.petSize * r.height)
+        sprite.anchorPoint = CGPoint(x: (0.5 - r.minX) / r.width, y: (Self.petAnchorY - r.minY) / r.height)
     }
+
+    /// The pose this crab is playing, so the scene can let go of every sheet nobody plays.
+    var petKeyInUse: String? { usesPet ? currentPetKey : nil }
 
     /// Park the sprite at its hover height and start (or stop) the lazy side-to-side drift that
     /// goes with it. Called on every pose change, so a crab that stops flying settles back down.
@@ -249,7 +246,9 @@ final class CrabNode: SKNode {
         if !isBaby { buildNameTag(); addChild(bubble) }
         buildBadge()
         alpha = isBaby ? 0.9 : 1
-        setStatus(.working)
+        // A pet gets its real status from the scene right after it is made; posing it as working
+        // first would load a working sheet for every crab at launch, only to drop it a moment later.
+        if !usesPet { setStatus(.working) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -257,24 +256,11 @@ final class CrabNode: SKNode {
     // MARK: - Name tag
 
     private func buildNameTag() {
-        for label in nameLabels {
-            label.fontName = "Menlo-Bold"
-            label.fontSize = 9.5
-            label.fontColor = .white
-            label.verticalAlignmentMode = .center
-            label.horizontalAlignmentMode = .center
-            label.zPosition = 2
-        }
-        nameBackground.strokeColor = .clear
-        nameBackground.fillColor = NSColor.black.withAlphaComponent(0.62)
-        nameBackground.zPosition = 1
-        nameBackground.alpha = 1
         // Above the body, and above the props (brackets, wrenches, question marks) that float over it.
         tagBaseY = usesPet ? Self.petTagY : sprite.size.height + 9
         tagNode.position = CGPoint(x: 0, y: tagBaseY)
         tagNode.zPosition = 6
-        tagNode.addChild(nameBackground)
-        nameLabels.forEach(tagNode.addChild)
+        tagNode.addChild(tagSprite)
         addChild(tagNode)
     }
 
@@ -283,21 +269,55 @@ final class CrabNode: SKNode {
         let lines = Self.tagLines(for: title)
         // No chat title yet (just-started or shutting-down session): no tag at all.
         tagNode.isHidden = lines.isEmpty
-        // The bottom line sits where a one-line tag always did; a second line goes on top of it.
-        for (i, label) in nameLabels.enumerated() {
-            label.isHidden = i >= lines.count
-            label.text = i < lines.count ? lines[i] : ""
-            label.position.y = CGFloat(lines.count - 1 - i) * Self.tagLineGap
-        }
-        let textWidth = nameLabels.prefix(lines.count).map(\.frame.width).max() ?? 0
-        let w = max(textWidth + 14, 24)
-        let h = Self.tagLineHeight + CGFloat(max(lines.count - 1, 0)) * Self.tagLineGap
-        tagWidth = lines.isEmpty ? 0 : w
-        tagHeight = h
-        // The pill grows upward, so a two-line tag never covers the crab.
-        nameBackground.path = CGPath(roundedRect: CGRect(x: -w / 2, y: -Self.tagLineHeight / 2, width: w, height: h),
-                                     cornerWidth: 4, cornerHeight: 4, transform: nil)
+        let tag = Self.tagImage(lines: lines)
+        tagWidth = lines.isEmpty ? 0 : tag.size.width
+        tagHeight = tag.size.height
+        tagSprite.texture = tag.texture
+        tagSprite.size = tag.size
+        // The pill grows upward, so a two-line tag never covers the crab: the bottom line sits
+        // where a one-line tag always did.
+        tagSprite.anchorPoint = CGPoint(x: 0.5, y: Self.tagLineHeight / 2 / tag.size.height)
         if bubble.isShowing { refreshBubble() }
+    }
+
+    static let tagFont = NSFont(name: "Menlo-Bold", size: 9.5) ?? .monospacedSystemFont(ofSize: 9.5, weight: .bold)
+
+    /// The name tag drawn once into a single image: the dark pill and its one or two lines of text.
+    /// It used to be a vector shape plus two text labels, redrawn by SpriteKit as three separate
+    /// pieces every frame for every crab; as one image it is a single cheap sprite, only redrawn
+    /// when the title changes.
+    static func tagImage(lines: [String]) -> (texture: SKTexture?, size: CGSize) {
+        let attrs: [NSAttributedString.Key: Any] = [.font: tagFont, .foregroundColor: NSColor.white]
+        let ctLines = lines.map { CTLineCreateWithAttributedString(NSAttributedString(string: $0, attributes: attrs)) }
+        let textWidth = ctLines.map { CGFloat(CTLineGetTypographicBounds($0, nil, nil, nil)) }.max() ?? 0
+        let w = ceil(max(textWidth + 14, 24))
+        let h = tagLineHeight + CGFloat(max(lines.count - 1, 0)) * tagLineGap
+        let size = CGSize(width: w, height: h)
+        guard !lines.isEmpty else { return (nil, size) }
+
+        let scale = max(NSScreen.screens.map(\.backingScaleFactor).max() ?? 2, 1)
+        guard let ctx = CGContext(data: nil, width: Int(ceil(w * scale)), height: Int(ceil(h * scale)),
+                                  bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return (nil, size) }
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.addPath(CGPath(roundedRect: CGRect(origin: .zero, size: size), cornerWidth: 4, cornerHeight: 4, transform: nil))
+        ctx.setFillColor(NSColor.black.withAlphaComponent(0.62).cgColor)
+        ctx.fillPath()
+        ctx.setShouldSmoothFonts(false)
+        // Each line centred on its own row, top line first; the rows are tagLineGap apart and the
+        // bottom one sits in the middle of a one-line pill.
+        let ascent = tagFont.ascender, descent = -tagFont.descender
+        for (i, line) in ctLines.enumerated() {
+            let rowCenter = tagLineHeight / 2 + CGFloat(ctLines.count - 1 - i) * tagLineGap
+            let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+            ctx.textPosition = CGPoint(x: (w - width) / 2, y: rowCenter - (ascent - descent) / 2)
+            CTLineDraw(line, ctx)
+        }
+        guard let image = ctx.makeImage() else { return (nil, size) }
+        let texture = SKTexture(cgImage: image)
+        texture.filteringMode = .linear
+        return (texture, size)
     }
 
     /// The chat title as at most `maxLines` tag lines of `perLine` characters (Menlo is monospaced),
@@ -475,12 +495,12 @@ final class CrabNode: SKNode {
         guard !frames.isEmpty else { return }
         petLift = hover.lift
         petSway = hover.sway
-        applyShadowCrop()
+        fit(to: frames)
         applyHover()
         currentPetKey = key
         applyFacing()
         sprite.removeAction(forKey: "gait")
-        let anim = SKAction.animate(with: frames, timePerFrame: 1.0 / PetLibrary.fps, resize: false, restore: false)
+        let anim = SKAction.animate(with: frames.textures, timePerFrame: 1.0 / PetLibrary.fps, resize: false, restore: false)
         if loop {
             sprite.run(.repeatForever(anim), withKey: "gait")
         } else if let completion {
@@ -567,7 +587,8 @@ final class CrabNode: SKNode {
         z.fontName = "Menlo-Bold"
         z.fontSize = isBaby ? 7 : 9
         z.fontColor = BadgeStyle.Palette.sleep
-        z.position = CGPoint(x: sprite.size.width * 0.25, y: sprite.size.height * 0.6)
+        let cell = usesPet ? CGSize(width: Self.petSize, height: Self.petSize) : sprite.size
+        z.position = CGPoint(x: cell.width * 0.25, y: cell.height * 0.6)
         z.zPosition = 4
         addChild(z)
         let drift = SKAction.group([.moveBy(x: 6, y: 16, duration: 1.6), .fadeOut(withDuration: 1.6)])

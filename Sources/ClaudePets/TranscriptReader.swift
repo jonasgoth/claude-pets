@@ -6,7 +6,12 @@ final class TranscriptReader {
     let sessionId: String
     private(set) var path: String?
     private var offset: UInt64 = 0
-    private var leftover = ""
+    /// The bytes after the last newline read so far: a record still being written.
+    private var leftover = Data()
+    /// Transcripts are read this much at a time. A long chat's file runs to tens of MB, and
+    /// reading it in one piece on first sight (with every parsed record kept alive until the
+    /// whole file was done) pushed the app's memory past a gigabyte at launch.
+    private static let chunkSize = 1 << 20
 
     // Signals folded from the record stream.
     private(set) var idle = false                 // last turn ended (real end_turn with text)
@@ -55,7 +60,7 @@ final class TranscriptReader {
     }
 
     private func locate() -> String? {
-        if let path, FileManager.default.fileExists(atPath: path) { return path }
+        if let path { return path }   // refresh forgets it if the file ever goes missing
         let projects = projectsDir
         guard let slugs = try? FileManager.default.contentsOfDirectory(atPath: projects) else { return nil }
         for slug in slugs {
@@ -66,29 +71,36 @@ final class TranscriptReader {
     }
 
     func refresh() {
-        guard let path = locate(), let handle = FileHandle(forReadingAtPath: path) else { return }
+        // One stat answers "anything new?" — the file is only opened when it grew (or shrank).
+        guard let path = locate() else { return }
+        guard let size = FileStat.info(path)?.size else { self.path = nil; return }   // moved: look again next time
+        guard size != offset, let handle = FileHandle(forReadingAtPath: path) else { return }
         defer { try? handle.close() }
-        let size = (try? handle.seekToEnd()) ?? 0
-        if size < offset { offset = 0; leftover = "" }
-        guard size > offset else { return }
+        if size < offset { offset = 0; leftover = Data() }
         try? handle.seek(toOffset: offset)
-        let data = handle.readDataToEndOfFile()
-        offset = size
-        guard let chunk = String(data: data, encoding: .utf8) else { return }
-        let text = leftover + chunk
-        leftover = ""
-        if let lastNewline = text.lastIndex(of: "\n") {
-            let complete = text[..<lastNewline]
-            leftover = String(text[text.index(after: lastNewline)...])
-            for line in complete.split(separator: "\n", omittingEmptySubsequences: true) { consume(String(line)) }
-        } else {
-            leftover = text
+        // Chunk by chunk, each in its own autorelease pool, so what one chunk parsed is freed
+        // before the next is read. Lines are split on the raw bytes: a chunk can end in the
+        // middle of a multi-byte character, which only ever sits inside a line, never at a newline.
+        while offset < size {
+            let more: Bool = autoreleasepool {
+                let want = Int(min(UInt64(Self.chunkSize), size - offset))
+                guard let data = try? handle.read(upToCount: want), !data.isEmpty else { return false }
+                offset += UInt64(data.count)
+                var buffer = leftover
+                buffer.append(data)
+                guard let lastNewline = buffer.lastIndex(of: 0x0A) else { leftover = buffer; return true }
+                leftover = Data(buffer[buffer.index(after: lastNewline)...])
+                for line in buffer[..<lastNewline].split(separator: 0x0A, omittingEmptySubsequences: true) {
+                    consume(Data(line))
+                }
+                return true
+            }
+            if !more { break }
         }
     }
 
-    private func consume(_ line: String) {
-        guard let data = line.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+    private func consume(_ data: Data) {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String else { return }
 
         var recordTime: Double = 0
@@ -99,7 +111,7 @@ final class TranscriptReader {
 
         // Bash's background jobs live outside the turn: the tool result hands back an id, and the
         // session only hears about the job again through a task-notification.
-        if type == "user" || type == "queue-operation" { noteBackgroundShells(line) }
+        if type == "user" || type == "queue-operation" { noteBackgroundShells(data) }
 
         switch type {
         case "custom-title":
@@ -169,14 +181,24 @@ final class TranscriptReader {
         }
     }
 
-    private func noteBackgroundShells(_ line: String) {
-        if line.contains("<task-id>") {
+    private static let taskIdMarker = Data("<task-id>".utf8)
+    private static let backgroundStartMarker = Data("Command running in background with ID:".utf8)
+
+    /// Most records mention neither marker, and these lines can be huge (whole tool outputs), so
+    /// the markers are looked for in the raw bytes first; a String is only built for a hit.
+    /// (Searching every line as a Swift String was most of the work of reading a transcript.)
+    private func noteBackgroundShells(_ data: Data) {
+        let hasTaskId = data.range(of: Self.taskIdMarker) != nil
+        let hasStart = data.range(of: Self.backgroundStartMarker) != nil
+        guard hasTaskId || hasStart else { return }
+        let line = String(decoding: data, as: UTF8.self)
+        if hasTaskId {
             let range = NSRange(line.startIndex..., in: line)
             for m in Self.taskIdPattern.matches(in: line, range: range) {
                 if let r = Range(m.range(at: 1), in: line) { backgroundShells[String(line[r])] = nil }
             }
         }
-        guard line.contains("Command running in background with ID:") else { return }
+        guard hasStart else { return }
         let range = NSRange(line.startIndex..., in: line)
         for m in Self.backgroundStartPattern.matches(in: line, range: range) {
             guard let idRange = Range(m.range(at: 1), in: line),
@@ -236,8 +258,50 @@ final class TranscriptReader {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
     }()
 
-    private static func epoch(_ iso: String) -> Double? {
+    private static let plainFormatter = ISO8601DateFormatter()
+
+    static func epoch(_ iso: String) -> Double? {
+        if let t = fastEpoch(iso) { return t }
         if let d = formatter.date(from: iso) { return d.timeIntervalSince1970 }
-        return ISO8601DateFormatter().date(from: iso)?.timeIntervalSince1970
+        return plainFormatter.date(from: iso)?.timeIntervalSince1970
+    }
+
+    /// Every record carries a timestamp like "2026-11-20T19:08:34.431Z", and running each one
+    /// through ISO8601DateFormatter was a fifth of the work of reading a transcript. This reads
+    /// that exact shape by hand (UTC, optional fraction); anything else goes to the formatter.
+    static func fastEpoch(_ iso: String) -> Double? {
+        var copy = iso
+        return copy.withUTF8 { b -> Double? in
+            let n = b.count
+            guard n >= 20, b[4] == 0x2D, b[7] == 0x2D, b[10] == 0x54, b[13] == 0x3A, b[16] == 0x3A,
+                  b[n - 1] == 0x5A else { return nil }
+            func num(_ from: Int, _ to: Int) -> Int? {
+                var v = 0
+                for i in from..<to {
+                    let d = Int(b[i]) - 48
+                    guard d >= 0, d <= 9 else { return nil }
+                    v = v * 10 + d
+                }
+                return v
+            }
+            guard var y = num(0, 4), let m = num(5, 7), let d = num(8, 10),
+                  let hh = num(11, 13), let mm = num(14, 16), let ss = num(17, 19),
+                  (1...12).contains(m), (1...31).contains(d), hh < 24, mm < 60, ss < 61 else { return nil }
+            var frac = 0.0
+            if n > 20 {
+                guard b[19] == 0x2E, n - 1 > 20, let f = num(20, n - 1) else { return nil }
+                frac = Double(f) / pow(10, Double(n - 1 - 20))
+            } else if b[19] != 0x5A {
+                return nil
+            }
+            // Days since 1970-01-01 (Howard Hinnant's days_from_civil).
+            y -= m <= 2 ? 1 : 0
+            let era = (y >= 0 ? y : y - 399) / 400
+            let yoe = y - era * 400
+            let doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1
+            let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+            let days = era * 146097 + doe - 719468
+            return Double(days * 86400 + hh * 3600 + mm * 60 + ss) + frac
+        }
     }
 }

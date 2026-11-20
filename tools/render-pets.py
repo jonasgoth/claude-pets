@@ -132,6 +132,8 @@ document.querySelectorAll('.c').forEach(c => {{
         print(f"  dropped {stale} ({gone['file']})")
     json.dump(manifest, open(manifest_path, "w"), indent=2)
     print("wrote manifest.json")
+    # Crop the fresh sheets down to the part of the cell the pet uses (see pack-pets.py).
+    subprocess.run([sys.executable, os.path.join(ROOT, "tools", "pack-pets.py")], check=True)
 
 if __name__ == "__main__":
     main()

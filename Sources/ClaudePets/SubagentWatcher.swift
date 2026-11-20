@@ -15,30 +15,42 @@ enum SubagentWatcher {
     /// SessionStore's background queue.
     private static var cache: [String: Cached] = [:]
 
+    /// Each folder's agent files, re-listed only when the folder itself changes (a new sub-agent
+    /// adds a file, which bumps the folder's mtime; appends to a file do not, and need not).
+    private struct Listing { let mtime: Double; let files: [String] }
+    private static var listings: [String: Listing] = [:]
+
     static func activeAgents(in directory: String, now: Double) -> [String] {
-        let fm = FileManager.default
-        guard let files = try? fm.contentsOfDirectory(atPath: directory) else { return [] }
+        guard let dirMtime = FileStat.mtime(directory) else { listings[directory] = nil; return [] }
+        let files: [String]
+        if let l = listings[directory], l.mtime == dirMtime {
+            files = l.files
+        } else {
+            let all = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
+            files = all.filter { $0.hasPrefix("agent-") && $0.hasSuffix(".jsonl") }
+            listings[directory] = Listing(mtime: dirMtime, files: files)
+        }
         var out: [String] = []
-        for file in files where file.hasPrefix("agent-") && file.hasSuffix(".jsonl") {
+        for file in files {
             let path = (directory as NSString).appendingPathComponent(file)
-            guard let modified = FileStat.mtime(path), now - modified <= staleAfter else { continue }
-            if !hasFinished(path: path, mtime: modified) {
+            guard let info = FileStat.info(path), now - info.mtime <= staleAfter else { continue }
+            if !hasFinished(path: path, mtime: info.mtime, size: info.size) {
                 out.append(String(file.dropLast(6)))   // strip ".jsonl"
             }
         }
         return out
     }
 
-    /// True once the transcript's last record is a finished assistant turn.
-    private static func hasFinished(path: String, mtime: Double) -> Bool {
+    /// True once the transcript's last record is a finished assistant turn. The file is only
+    /// opened when it changed since the last look.
+    private static func hasFinished(path: String, mtime: Double, size: UInt64) -> Bool {
+        if let c = cache[path], c.size == size, c.mtime == mtime { return c.finished }
         guard let handle = FileHandle(forReadingAtPath: path) else { return false }
         defer { try? handle.close() }
-        let size = (try? handle.seekToEnd()) ?? 0
-        if let c = cache[path], c.size == size, c.mtime == mtime { return c.finished }
         let tailLength: UInt64 = 64 * 1024
         let start = size > tailLength ? size - tailLength : 0
         try? handle.seek(toOffset: start)
-        let data = handle.readDataToEndOfFile()
+        let data = (try? handle.read(upToCount: Int(size - start))) ?? Data()
         let finished = lastRecordIsFinishedTurn(String(decoding: data, as: UTF8.self))
         cache[path] = Cached(size: size, mtime: mtime, finished: finished)
         return finished

@@ -120,9 +120,9 @@ final class SessionStore {
             }
         }
         let look = seen.snapshot()
-        let hooks = HookBridge.scan()
         if now - lastProfileCheck > Self.fallbackRescan { refreshProfiles(now: now) }
         let live = SessionRegistry.scan(profiles: profiles.map(\.profile))
+        let hooks = HookBridge.events(for: live.map(\.sessionId), now: now)
         // Folder trees are only rescanned when FSEvents saw a change (plus a slow safety rescan).
         for ps in profiles {
             let tag = ps.profile.isMain ? "" : " [\(ps.profile.name)]"

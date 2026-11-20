@@ -143,6 +143,9 @@ final class PlaypenScene: SKScene {
     /// Fires with `true` the moment a crab is picked up (the window grows to the whole screen so
     /// it can be carried right to the top) and `false` once everyone is back on the floor.
     var onNeedsTallWindow: ((Bool) -> Void)?
+    /// Called once per frame, so the window can check where the cursor is (see
+    /// `PlaypenController.pollPointer`).
+    var onFrame: (() -> Void)?
     private var needsTallWindow = false
 
     private(set) var crabs: [CrabNode] = []
@@ -174,6 +177,8 @@ final class PlaypenScene: SKScene {
 
     private var sceneTime: TimeInterval = 0
     private var lastUpdate: TimeInterval = 0
+    /// When the pet sheets no crab plays were last let go of (see `purgeUnusedSheets`).
+    private var lastSheetPurge: TimeInterval = 0
     /// Keep the frame rate up for a moment after something changes, so short animations look smooth.
     private var boostUntil: TimeInterval = 0
 
@@ -373,9 +378,20 @@ final class PlaypenScene: SKScene {
         towBabies(dt: dt)
         followParents(dt: dt)
         layoutTags()
+        onFrame?()
         hoverCheck()
         adaptFrameRate()
         settleTallWindow()
+        purgeUnusedSheets()
+    }
+
+    /// Every few seconds, let go of the pet sheets no crab on screen is playing. Without this every
+    /// pose any crab ever played stays on the GPU for good, and a day of crabs coming and going
+    /// fills it with all of them.
+    private func purgeUnusedSheets() {
+        guard sceneTime - lastSheetPurge > 10 else { return }
+        lastSheetPurge = sceneTime
+        PetLibrary.purge(keeping: Set(crabs.compactMap(\.petKeyInUse)))
     }
 
     /// Ask for the full-height window while a crab is in the air; hand the extra room back the

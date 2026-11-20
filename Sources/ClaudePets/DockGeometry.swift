@@ -68,10 +68,9 @@ enum DockGeometry {
         var tiles = pinnedApps.count
         var sawFinder = pinned.contains { $0.hasSuffix("/Finder.app") }
         // Running apps that aren't pinned get a tile too.
-        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
-            guard let url = app.bundleURL?.absoluteString else { continue }
-            if app.bundleIdentifier == "com.apple.finder" { if !sawFinder { tiles += 1; sawFinder = true }; continue }
-            if !pinned.contains(normalize(url)) { tiles += 1 }
+        for app in regularApps() {
+            if app.isFinder { if !sawFinder { tiles += 1; sawFinder = true }; continue }
+            if !pinned.contains(app.url) { tiles += 1 }
         }
         if !sawFinder { tiles += 1 }              // Finder is always first
         tiles += pinnedOthers.count + 1          // folders/documents + Trash
@@ -79,6 +78,32 @@ enum DockGeometry {
         // Calibrated on a tile size of 54: each tile ≈ t + 6 pt, one separator ≈ 8, end padding ≈ 8.
         let width = CGFloat(tiles) * (t + 6) + 8 + 8
         return CGRect(x: screen.frame.midX - width / 2, y: screen.frame.minY, width: width, height: dockHeight)
+    }
+
+    /// The apps with a Dock tile, kept until an app launches or quits. Asking each running app for
+    /// its activation policy is a round trip to LaunchServices per app, and this runs every few
+    /// seconds; the list only changes when an app comes or goes (or an app turns into a Dock app,
+    /// which it does on its way to the front, hence activation too). Main thread only.
+    private struct RegularApp { let url: String; let isFinder: Bool }
+    private static var cachedApps: [RegularApp]?
+    private static var watchingApps = false
+
+    private static func regularApps() -> [RegularApp] {
+        if !watchingApps {
+            watchingApps = true
+            let center = NSWorkspace.shared.notificationCenter
+            for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
+                         NSWorkspace.didActivateApplicationNotification] {
+                center.addObserver(forName: name, object: nil, queue: .main) { _ in cachedApps = nil }
+            }
+        }
+        if let cachedApps { return cachedApps }
+        let apps = NSWorkspace.shared.runningApplications.compactMap { app -> RegularApp? in
+            guard app.activationPolicy == .regular, let url = app.bundleURL?.absoluteString else { return nil }
+            return RegularApp(url: normalize(url), isFinder: app.bundleIdentifier == "com.apple.finder")
+        }
+        cachedApps = apps
+        return apps
     }
 
     private static func normalize(_ url: String) -> String {
